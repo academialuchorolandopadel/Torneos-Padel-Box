@@ -72,7 +72,7 @@ async function apiPost(action, data = {}) {
   url.searchParams.set("token", TOKEN);
   const res = await fetch(url.toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "text/plain" }, 
     body: JSON.stringify({ action, ...data }),
   });
   if (!res.ok) throw new Error(`Error ${res.status}`);
