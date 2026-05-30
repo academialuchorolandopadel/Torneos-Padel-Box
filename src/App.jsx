@@ -53,7 +53,7 @@ const STAGE_LABEL = {
 
 // ─── API ───
 const API_BASE = "https://script.google.com/macros/s/AKfycbxJUZmFw3eGZKORu-ItQmrUC9sBm6wvdnofe7izbeqmZ54h5dfXAGbAALOCtM2t1KBz-w/exec"; // Reemplaza con la URL de tu Apps Script
-const TOKEN = "padelbox2026secreto"; // Reemplaza con tu token
+const TOKEN = "padelbox2026secreto"; 
 
 async function api(action, params = {}) {
   const url = new URL(API_BASE);
