@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
-const COURTS = ["BOX 1", "BOX 2", "BOX 3"];
+const COURTS = ["BOX 3", "BOX 2", "BOX 1"];
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const n = (x) => parseInt(x) || 0;
 const MIN_GAP = 300;
