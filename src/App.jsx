@@ -583,6 +583,10 @@ function EditPairModal({ pair, onSave, onClose }) {
 
 /* ─── Inscripcion ─── */
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
+  // Protección contra categoría sin datos completos
+  if (!cat || !cat.parejas || !cat.grupos) {
+    return <div className="empty">Cargando datos de la categoría...</div>;
+  }
   const empty = { nombre: "", j1nombre: "", j1cedula: "", j2nombre: "", j2cedula: "" };
   const [form, setForm] = useState(empty);
   const [showAdd, setShowAdd] = useState(true);
@@ -1026,6 +1030,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Carga inicial con categorías seguras (arrays vacíos)
   useEffect(() => {
     (async () => {
       try {
@@ -1034,7 +1039,21 @@ export default function App() {
           api("getAllTorneos"),
           api("getAllJugadores"),
         ]);
-        setTorneos(torneosData);
+        // Inicializar todas las categorías con arrays vacíos
+        const safeTorneos = torneosData.map((t) => ({
+          ...t,
+          categorias: (t.categorias || []).map((c) => ({
+            ...c,
+            parejas: c.parejas || [],
+            grupos: c.grupos || [],
+            partidos: c.partidos || [],
+            knockoutRounds: [],
+            fixtureGenerado: c.fixtureGenerado === true || c.fixtureGenerado === "true",
+            knockoutGenerated: c.knockoutGenerated === true || c.knockoutGenerated === "true",
+            pointsAwarded: c.pointsAwarded === true || c.pointsAwarded === "true",
+          })),
+        }));
+        setTorneos(safeTorneos);
         const jugs = {};
         jugadoresData.forEach((j) => {
           jugs[j.cedula] = { ...j, historial: j.historial || [] };
@@ -1062,22 +1081,32 @@ export default function App() {
     );
   }
 
+  // Abrir torneo con parseo seguro de roundsJSON
   async function handleOpenTorneo(torneoId) {
     setActiveTId(torneoId);
     setActiveCId(null);
     setSubview("inscripcion");
     try {
       const fullTorneo = await api("getTorneo", { torneoId });
-      fullTorneo.categorias = fullTorneo.categorias.map((c) => ({
-        ...c,
-        parejas: c.parejas || [],
-        grupos: c.grupos || [],
-        partidos: c.partidos || [],
-        knockoutRounds: c.knockout?.roundsJSON || [],
-        fixtureGenerado: c.fixtureGenerado === true || c.fixtureGenerado === "true",
-        knockoutGenerated: c.knockoutGenerated === true || c.knockoutGenerated === "true",
-        pointsAwarded: c.pointsAwarded === true || c.pointsAwarded === "true",
-      }));
+      fullTorneo.categorias = fullTorneo.categorias.map((c) => {
+        let knockoutRounds = [];
+        if (c.knockout?.roundsJSON) {
+          knockoutRounds =
+            typeof c.knockout.roundsJSON === "string"
+              ? JSON.parse(c.knockout.roundsJSON)
+              : c.knockout.roundsJSON;
+        }
+        return {
+          ...c,
+          parejas: c.parejas || [],
+          grupos: c.grupos || [],
+          partidos: c.partidos || [],
+          knockoutRounds,
+          fixtureGenerado: c.fixtureGenerado === true || c.fixtureGenerado === "true",
+          knockoutGenerated: c.knockoutGenerated === true || c.knockoutGenerated === "true",
+          pointsAwarded: c.pointsAwarded === true || c.pointsAwarded === "true",
+        };
+      });
       setTorneos((prev) => prev.map((t) => (t.id === torneoId ? fullTorneo : t)));
       setActiveCId(fullTorneo.categorias[0]?.id || null);
     } catch (err) {
@@ -1236,7 +1265,6 @@ export default function App() {
     } catch (err) { console.error(err); }
   }
 
-  // ─── CORRECCIÓN 1: generateKnockout ahora asigna horarios automáticamente ───
   async function generateKnockout() {
     if (!activeCat) return;
     const classified = [];
@@ -1251,7 +1279,6 @@ export default function App() {
     const seeded = firsts.map((f, i) => [f, seconds[i] || null]).flat().filter(Boolean);
     const rawRounds = buildBracket(seeded);
 
-    // Obtener TODOS los partidos ya programados (incluye fase de grupos de esta categoría y otras)
     const t = torneos.find((t) => t.id === activeTId);
     const alreadyScheduled = t
       ? t.categorias.flatMap((c) =>
@@ -1288,7 +1315,6 @@ export default function App() {
     }
   }
 
-  // ─── CORRECCIÓN 2: awardPoints con validación y mensajes visibles ───
   async function awardPoints() {
     if (!activeCat || !activeTorneo) return;
     const stages = calcPairStages(activeCat);
