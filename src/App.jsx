@@ -52,8 +52,8 @@ const STAGE_LABEL = {
 };
 
 // ─── API ───
-const API_BASE = "https://script.google.com/macros/s/AKfycbxJUZmFw3eGZKORu-ItQmrUC9sBm6wvdnofe7izbeqmZ54h5dfXAGbAALOCtM2t1KBz-w/exec"; // Reemplaza con la URL de tu Apps Script
-const TOKEN = "padelbox2026secreto"; 
+const API_BASE = "https://script.google.com/macros/s/AKfycbxJUZmFw3eGZKORu-ItQmrUC9sBm6wvdnofe7izbeqmZ54h5dfXAGbAALOCtM2t1KBz-w/exec";
+const TOKEN = "padelbox2026secreto";
 
 async function api(action, params = {}) {
   const url = new URL(API_BASE);
@@ -1236,6 +1236,7 @@ export default function App() {
     } catch (err) { console.error(err); }
   }
 
+  // ─── CORRECCIÓN 1: generateKnockout ahora asigna horarios automáticamente ───
   async function generateKnockout() {
     if (!activeCat) return;
     const classified = [];
@@ -1245,16 +1246,49 @@ export default function App() {
       if (st[0]) classified.push({ pos: 1, grupo: g.nombre, pairId: st[0].id });
       if (st[1]) classified.push({ pos: 2, grupo: g.nombre, pairId: st[1].id });
     });
-    const firsts = classified.filter((c) => c.pos === 1), seconds = classified.filter((c) => c.pos === 2).reverse();
+    const firsts = classified.filter((c) => c.pos === 1),
+      seconds = classified.filter((c) => c.pos === 2).reverse();
     const seeded = firsts.map((f, i) => [f, seconds[i] || null]).flat().filter(Boolean);
-    const newRounds = buildBracket(seeded);
-    updateCat(activeCId, (c) => ({ ...c, knockoutRounds: newRounds, knockoutGenerated: true }));
+    const rawRounds = buildBracket(seeded);
+
+    // Obtener TODOS los partidos ya programados (incluye fase de grupos de esta categoría y otras)
+    const t = torneos.find((t) => t.id === activeTId);
+    const alreadyScheduled = t
+      ? t.categorias.flatMap((c) =>
+          c.partidos.filter((m) => m.dia && m.hora && m.cancha && m.mins != null)
+        )
+      : [];
+
+    const allKoMatches = rawRounds.flat().filter((m) => !m.auto && m.p1id && m.p2id);
+    const pairRestrictions = buildRestrMap(activeCat.parejas);
+    const scheduledKo = scheduleMatches(allKoMatches, alreadyScheduled, pairRestrictions);
+
+    const newRounds = rawRounds.map((round) =>
+      round.map((m) => {
+        if (m.auto) return m;
+        const found = scheduledKo.find((sm) => sm.id === m.id);
+        return found ? { ...m, ...found } : m;
+      })
+    );
+
+    updateCat(activeCId, (c) => ({
+      ...c,
+      knockoutRounds: newRounds,
+      knockoutGenerated: true,
+    }));
+
     try {
       await apiPost("saveKnockout", { categoriaId: activeCId, roundsJSON: newRounds });
-      await apiPost("saveCategoria", { categoria: { id: activeCId, torneoId: activeTId, knockoutGenerated: true } });
-    } catch (err) { console.error(err); }
+      await apiPost("saveCategoria", {
+        categoria: { id: activeCId, torneoId: activeTId, knockoutGenerated: true },
+      });
+    } catch (err) {
+      alert("❌ Error al guardar la llave final: " + err.message);
+      console.error(err);
+    }
   }
 
+  // ─── CORRECCIÓN 2: awardPoints con validación y mensajes visibles ───
   async function awardPoints() {
     if (!activeCat || !activeTorneo) return;
     const stages = calcPairStages(activeCat);
@@ -1262,23 +1296,58 @@ export default function App() {
     setJugadores((prev) => {
       const nxt = { ...prev };
       activeCat.parejas.forEach((pair) => {
-        const stage = stages[pair.id] || "zona", pts = STAGE_PTS[stage] || 0;
-        [{ cedula: pair.j1cedula, nombre: pair.j1nombre || pair.j1 }, { cedula: pair.j2cedula, nombre: pair.j2nombre || pair.j2 }]
+        const stage = stages[pair.id] || "zona",
+          pts = STAGE_PTS[stage] || 0;
+        [
+          { cedula: pair.j1cedula, nombre: pair.j1nombre || pair.j1 },
+          { cedula: pair.j2cedula, nombre: pair.j2nombre || pair.j2 },
+        ]
           .filter((j) => j.cedula)
           .forEach((j) => {
-            if (!nxt[j.cedula]) nxt[j.cedula] = { cedula: j.cedula, nombre: j.nombre, totalPts: 0, historial: [] };
-            const already = nxt[j.cedula].historial.some((h) => h.torneoId === activeTId && h.catId === activeCId);
-            if (!already) nxt[j.cedula] = { ...nxt[j.cedula], nombre: j.nombre, totalPts: nxt[j.cedula].totalPts + pts, historial: [...nxt[j.cedula].historial, { torneoId: activeTId, catId: activeCId, torneoNombre: activeTorneo.nombre, catNombre: activeCat.nombre, stage, pts, fecha: new Date().toLocaleDateString("es-PY") }] };
+            if (!nxt[j.cedula])
+              nxt[j.cedula] = { cedula: j.cedula, nombre: j.nombre, totalPts: 0, historial: [] };
+            const already = nxt[j.cedula].historial.some(
+              (h) => h.torneoId === activeTId && h.catId === activeCId
+            );
+            if (!already)
+              nxt[j.cedula] = {
+                ...nxt[j.cedula],
+                nombre: j.nombre,
+                totalPts: nxt[j.cedula].totalPts + pts,
+                historial: [
+                  ...nxt[j.cedula].historial,
+                  {
+                    torneoId: activeTId,
+                    catId: activeCId,
+                    torneoNombre: activeTorneo.nombre,
+                    catNombre: activeCat.nombre,
+                    stage,
+                    pts,
+                    fecha: new Date().toLocaleDateString("es-PY"),
+                  },
+                ],
+              };
           });
       });
       nuevosJugadores = Object.values(nxt);
       return nxt;
     });
     updateCat(activeCId, (c) => ({ ...c, pointsAwarded: true }));
+
     try {
-      if (nuevosJugadores) await apiPost("saveJugadores", { jugadores: nuevosJugadores });
-      await apiPost("saveCategoria", { categoria: { id: activeCId, torneoId: activeTId, pointsAwarded: true } });
-    } catch (err) { console.error(err); }
+      if (nuevosJugadores) {
+        const resJug = await apiPost("saveJugadores", { jugadores: nuevosJugadores });
+        if (!resJug.success) throw new Error("No se guardaron los jugadores");
+      }
+      const resCat = await apiPost("saveCategoria", {
+        categoria: { id: activeCId, torneoId: activeTId, pointsAwarded: true },
+      });
+      if (!resCat.success) throw new Error("No se actualizó la categoría");
+      alert("✅ Puntos guardados correctamente");
+    } catch (err) {
+      alert("❌ Error al guardar los puntos: " + err.message);
+      console.error(err);
+    }
   }
 
   async function handleDeleteTorneo(torneoId) {
