@@ -345,6 +345,7 @@ const CSS = `
   .br-team:last-child{border-bottom:none}
   .br-team.win{color:var(--accent);font-weight:700}.br-team.tbd{color:var(--muted);font-style:italic}
   .br-score{font-family:'Oswald',sans-serif;font-size:11px;font-weight:600}
+  .br-schedule{font-size:9px;color:var(--muted);padding:2px 8px;background:rgba(0,0,0,0.2);text-align:center}
   .overlay{position:fixed;inset:0;background:rgba(6,13,24,.9);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
   .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:480px;margin:auto}
   .modal-lg{max-width:600px}
@@ -389,7 +390,7 @@ const CSS = `
   }
 `;
 
-/* ─── Result Modal ─── */
+/* ─── Componentes modales y vistas sin cambios ─── */
 function ResultModal({ match, cat, onSave, onClose }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   const [form, setForm] = useState({
@@ -490,7 +491,6 @@ function ResultModal({ match, cat, onSave, onClose }) {
   );
 }
 
-/* ─── Edit Pair Modal (con restricciones) ─── */
 function EditPairModal({ pair, onSave, onClose }) {
   const [form, setForm] = useState({
     nombre: pair.nombre || "",
@@ -581,7 +581,6 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
-/* ─── Inscripcion ─── */
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
@@ -688,7 +687,6 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   );
 }
 
-/* ─── Fixture ─── */
 function Fixture({ cat, onGenerate }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -774,16 +772,18 @@ function Fixture({ cat, onGenerate }) {
   );
 }
 
-/* ─── Resultados ─── */
 function Resultados({ cat, onOpen }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">⚡</div><p>Generá el fixture primero</p></div>;
+  if (!cat.partidos || cat.partidos.length === 0)
+    return <div className="empty"><div className="empty-ico">📋</div><p>No hay partidos cargados en esta categoría.</p></div>;
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Resultados</div><span className="badge bg">{cat.partidos.filter((m) => m.done).length}/{cat.partidos.length} completados</span></div>
       {cat.grupos.map((g) => {
         const gm = cat.partidos.filter((m) => m.grupoId === g.id);
+        if (gm.length === 0) return null;
         return (
           <div key={g.id} className="card">
             <div className="card-title">{g.nombre}</div>
@@ -822,7 +822,6 @@ function Resultados({ cat, onOpen }) {
   );
 }
 
-/* ─── Posiciones ─── */
 function Posiciones({ cat }) {
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">📊</div><p>Generá el fixture para ver las posiciones</p></div>;
@@ -858,7 +857,7 @@ function Posiciones({ cat }) {
   );
 }
 
-/* ─── Llave Final ─── */
+/* ─── Llave Final con horario visible ─── */
 const ROUND_NAMES = ["OCTAVOS", "CUARTOS", "SEMIS", "FINAL", "RONDA 5", "RONDA 6"];
 function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
@@ -925,6 +924,11 @@ function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
                           <span>{p2 ? p2.nombre : m.p2label || "TBD"}</span>
                           {m.done && <span className="br-score">{m.s1p2} {m.s2p2}</span>}
                         </div>
+                        {m.dia && m.hora && m.cancha && (
+                          <div className="br-schedule">
+                            {m.dia} {m.hora} · {m.cancha}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1321,50 +1325,51 @@ export default function App() {
   async function awardPoints() {
     if (!activeCat || !activeTorneo) return;
     const stages = calcPairStages(activeCat);
-    let nuevosJugadores;
+    let nuevosJugadores = [];
+    
     setJugadores((prev) => {
       const nxt = { ...prev };
       activeCat.parejas.forEach((pair) => {
-        const stage = stages[pair.id] || "zona",
-          pts = STAGE_PTS[stage] || 0;
-        [
-          { cedula: pair.j1cedula, nombre: pair.j1nombre || pair.j1 },
-          { cedula: pair.j2cedula, nombre: pair.j2nombre || pair.j2 },
-        ]
-          .filter((j) => j.cedula)
-          .forEach((j) => {
-            if (!nxt[j.cedula])
-              nxt[j.cedula] = { cedula: j.cedula, nombre: j.nombre, totalPts: 0, historial: [] };
-            const already = nxt[j.cedula].historial.some(
-              (h) => h.torneoId === activeTId && h.catId === activeCId
-            );
-            if (!already)
-              nxt[j.cedula] = {
-                ...nxt[j.cedula],
-                nombre: j.nombre,
-                totalPts: nxt[j.cedula].totalPts + pts,
-                historial: [
-                  ...nxt[j.cedula].historial,
-                  {
-                    torneoId: activeTId,
-                    catId: activeCId,
-                    torneoNombre: activeTorneo.nombre,
-                    catNombre: activeCat.nombre,
-                    stage,
-                    pts,
-                    fecha: new Date().toLocaleDateString("es-PY"),
-                  },
-                ],
-              };
-          });
+        const stage = stages[pair.id] || "zona";
+        const pts = STAGE_PTS[stage] || 0;
+        [pair.j1cedula, pair.j2cedula].forEach((cedula) => {
+          if (!cedula) return;
+          const nombre = cedula === pair.j1cedula ? pair.j1nombre || pair.j1 : pair.j2nombre || pair.j2;
+          if (!nxt[cedula]) {
+            nxt[cedula] = { cedula, nombre, totalPts: 0, historial: [] };
+          }
+          const already = nxt[cedula].historial.some(
+            (h) => h.torneoId === activeTId && h.catId === activeCId
+          );
+          if (!already) {
+            nxt[cedula] = {
+              ...nxt[cedula],
+              nombre: nombre || nxt[cedula].nombre,
+              totalPts: nxt[cedula].totalPts + pts,
+              historial: [
+                ...nxt[cedula].historial,
+                {
+                  torneoId: activeTId,
+                  catId: activeCId,
+                  torneoNombre: activeTorneo.nombre,
+                  catNombre: activeCat.nombre,
+                  stage,
+                  pts,
+                  fecha: new Date().toLocaleDateString("es-PY"),
+                },
+              ],
+            };
+          }
+        });
       });
       nuevosJugadores = Object.values(nxt);
       return nxt;
     });
+
     updateCat(activeCId, (c) => ({ ...c, pointsAwarded: true }));
 
     try {
-      if (nuevosJugadores) {
+      if (nuevosJugadores.length > 0) {
         const resJug = await apiPost("saveJugadores", { jugadores: nuevosJugadores });
         if (!resJug.success) throw new Error("No se guardaron los jugadores");
       }
