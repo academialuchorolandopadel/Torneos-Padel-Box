@@ -313,7 +313,24 @@ function calcPairStages(cat) {
   return stages;
 }
 
-// ─── CSS ───
+// NUEVA FUNCIÓN para recalcular horarios de la llave en tiempo real
+function getKnockoutWithSchedules(knockoutRounds, existingMatches, parejas) {
+  if (!knockoutRounds || !knockoutRounds.length) return knockoutRounds;
+  const allMatches = knockoutRounds.flat().filter(m => !m.auto && m.p1id && m.p2id);
+  if (allMatches.length === 0) return knockoutRounds;
+  const pairRestrictions = buildRestrMap(parejas);
+  const scheduled = scheduleMatches(allMatches, existingMatches, pairRestrictions);
+  const scheduledMap = new Map(scheduled.map(m => [m.id, m]));
+  return knockoutRounds.map(round =>
+    round.map(m => {
+      if (m.auto) return m;
+      const scheduledMatch = scheduledMap.get(m.id);
+      return scheduledMatch ? { ...m, ...scheduledMatch } : m;
+    })
+  );
+}
+
+// ─── CSS (completo, igual que antes) ───
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -654,7 +671,7 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
-// ─── Inscripcion ───
+// ─── Inscripcion (igual) ───
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
@@ -761,7 +778,7 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   );
 }
 
-// ─── Fixture ───
+// ─── Fixture (igual) ───
 function Fixture({ cat, onGenerate }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -847,7 +864,7 @@ function Fixture({ cat, onGenerate }) {
   );
 }
 
-// ─── Resultados ───
+// ─── Resultados (igual) ───
 function Resultados({ cat, onOpen }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -898,7 +915,7 @@ function Resultados({ cat, onOpen }) {
   );
 }
 
-// ─── Posiciones ───
+// ─── Posiciones (igual) ───
 function Posiciones({ cat }) {
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">📊</div><p>Generá el fixture para ver las posiciones</p></div>;
@@ -934,13 +951,20 @@ function Posiciones({ cat }) {
   );
 }
 
-// ─── Llave Final ───
+// ─── Llave Final (MODIFICADA: usa getKnockoutWithSchedules) ───
 const ROUND_NAMES = ["OCTAVOS", "CUARTOS", "SEMIS", "FINAL", "RONDA 5", "RONDA 6"];
-function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
+function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
-  const koFlat = (cat.knockoutRounds || []).flat();
+  // Recalcular horarios en cada render
+  const knockoutRoundsWithSchedules = React.useMemo(() => {
+    if (!cat.knockoutRounds) return [];
+    return getKnockoutWithSchedules(cat.knockoutRounds, allMatches, cat.parejas);
+  }, [cat.knockoutRounds, allMatches, cat.parejas]);
+  
+  const koFlat = knockoutRoundsWithSchedules.flat();
   const koDone = koFlat.filter((m) => m.done && !m.auto).length;
   const koTotal = koFlat.filter((m) => !m.auto).length;
+  
   if (!cat.knockoutGenerated)
     return (
       <div>
@@ -983,7 +1007,7 @@ function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
       <div className="card mb16">
         <div className="bracket-wrap">
           <div className="bracket">
-            {(cat.knockoutRounds || []).map((round, ri) => (
+            {knockoutRoundsWithSchedules.map((round, ri) => (
               <div key={ri} className="br-round">
                 <div className="br-round-hdr">{ROUND_NAMES[ri] || `Ronda ${ri + 1}`}</div>
                 <div className="br-matches">
@@ -1041,11 +1065,20 @@ function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
   );
 }
 
-// ─── JugadoresView ───
-function JugadoresView({ jugadores }) {
+// ─── JugadoresView (MODIFICADO: incluye botón eliminar) ───
+function JugadoresView({ jugadores, onDeleteJugador }) {
   const [sel, setSel] = useState(null);
   const list = Object.values(jugadores).sort((a, b) => b.totalPts - a.totalPts);
   const jug = sel ? jugadores[sel] : null;
+  
+  const handleDelete = (cedula, e) => {
+    e.stopPropagation();
+    if (window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)) {
+      onDeleteJugador(cedula);
+      if (sel === cedula) setSel(null);
+    }
+  };
+
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Ranking de Jugadores</div><span className="badge bb">{list.length} registrados</span></div>
@@ -1058,7 +1091,11 @@ function JugadoresView({ jugadores }) {
               <div key={j.cedula} className="rank-row" style={{ borderColor: sel === j.cedula ? "var(--accent)" : "var(--border)" }} onClick={() => setSel(sel === j.cedula ? null : j.cedula)}>
                 <div className={`rank-pos${i === 0 ? " p1" : i === 1 ? " p2" : i === 2 ? " p3" : ""}`}>{i + 1}</div>
                 <div className="f1"><div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{j.nombre}</div><div style={{ fontSize: 11, color: "var(--muted)" }}>CI: {j.cedula}</div></div>
-                <div className="col" style={{ alignItems: "flex-end" }}><div className="rank-pts">{j.totalPts}</div><div className="rank-pts-lbl">puntos</div></div>
+                <div className="col" style={{ alignItems: "flex-end" }}>
+                  <div className="rank-pts">{j.totalPts}</div>
+                  <div className="rank-pts-lbl">puntos</div>
+                </div>
+                <button className="btn btn-danger btn-xs" onClick={(e) => handleDelete(j.cedula, e)}>🗑️</button>
               </div>
             ))}
           </div>
@@ -1122,8 +1159,7 @@ export default function App() {
         const torneosCol = collection(db, "torneos");
         const torneosSnap = await getDocs(torneosCol);
         const torneosData = torneosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Cargar categorías, parejas, partidos, etc. para cada torneo (opcional: cargar bajo demanda)
-        // Por simplicidad, cargamos los torneos con sus categorías desde subcolecciones
+        // Cargar categorías, parejas, partidos, etc. para cada torneo
         const torneosCompletos = await Promise.all(torneosData.map(async (t) => {
           const catsCol = collection(db, "categorias");
           const q = query(catsCol, where("torneoId", "==", t.id));
@@ -1166,6 +1202,8 @@ export default function App() {
 
   const activeTorneo = torneos.find((t) => t.id === activeTId);
   const activeCat = activeTorneo?.categorias?.find((c) => c.id === activeCId);
+  // Todos los partidos del torneo (para restricciones de horario en llave)
+  const allMatches = activeTorneo?.categorias?.flatMap(c => c.partidos) || [];
 
   function updateCat(catId, fn) {
     setTorneos((prev) =>
@@ -1320,7 +1358,6 @@ export default function App() {
     const sched = scheduleMatches(raw, otherMatches, buildRestrMap(assignedPairs));
     const updatedCat = { ...activeCat, parejas: assignedPairs, grupos, partidos: sched, fixtureGenerado: true };
     updateCat(activeCId, () => updatedCat);
-    // Guardar en Firestore
     await guardarCategoria({ ...updatedCat, id: activeCId });
     await Promise.all(assignedPairs.map(p => guardarPareja(p)));
     await Promise.all(sched.map(m => guardarPartido(m)));
@@ -1447,6 +1484,19 @@ export default function App() {
     alert("✅ Puntos guardados correctamente");
   }
 
+  async function eliminarJugador(cedula) {
+    try {
+      await deleteDoc(doc(db, "jugadores", cedula));
+      setJugadores(prev => {
+        const newJug = { ...prev };
+        delete newJug[cedula];
+        return newJug;
+      });
+    } catch (err) {
+      alert("Error al eliminar: " + err.message);
+    }
+  }
+
   async function eliminarTorneo(torneoId) {
     setTorneos((p) => p.filter((x) => x.id !== torneoId));
     try {
@@ -1502,7 +1552,7 @@ export default function App() {
           </header>
           <div className="main">
             {appView === "jugadores" ? (
-              <JugadoresView jugadores={jugadores} />
+              <JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} />
             ) : (
               <>
                 <div className="hero">
@@ -1582,7 +1632,7 @@ export default function App() {
               {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} />}
               {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => setModal({ type: "res", match: m })} />}
               {subview === "posiciones" && <Posiciones cat={activeCat} />}
-              {subview === "llave" && <LlaveFinal cat={activeCat} onGenerate={generarKnockout} onOpen={(m) => setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} />}
+              {subview === "llave" && <LlaveFinal cat={activeCat} allMatches={allMatches} onGenerate={generarKnockout} onOpen={(m) => setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} />}
             </>
           )}
         </div>
