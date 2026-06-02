@@ -1,20 +1,12 @@
-import { useState, useEffect } from "react";
+// ===== PARTE 1 =====
+import React, { useState, useEffect } from "react";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const COURTS = ["BOX 3", "BOX 2", "BOX 1"];
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const n = (x) => parseInt(x) || 0;
 const MIN_GAP = 300;
-
-const BLOQUES = [
-  { id: "jue_noche", label: "Jueves noche" },
-  { id: "vie_noche", label: "Viernes noche" },
-  { id: "sab_man", label: "Sábado mañana" },
-  { id: "sab_tarde", label: "Sábado tarde" },
-  { id: "sab_noche", label: "Sábado noche" },
-  { id: "dom_man", label: "Domingo mañana" },
-  { id: "dom_tarde", label: "Domingo tarde" },
-];
+const ADMIN_PIN = "1234";
 
 const SLOT_DEFS = [
   { dia: "JUEVES", hora: "19:00", mins: 1140, bloque: "jue_noche" },
@@ -43,6 +35,12 @@ const ALL_SLOTS = SLOT_DEFS.flatMap((s) =>
   COURTS.map((c) => ({ ...s, cancha: c }))
 );
 
+const BLOQUE_TO_SLOTS = {};
+SLOT_DEFS.forEach(s => {
+  if (!BLOQUE_TO_SLOTS[s.bloque]) BLOQUE_TO_SLOTS[s.bloque] = [];
+  BLOQUE_TO_SLOTS[s.bloque].push(`${s.dia}|${s.hora}`);
+});
+
 const STAGE_PTS = {
   campeon: 100,
   finalista: 75,
@@ -60,17 +58,31 @@ const STAGE_LABEL = {
   zona: "📍 Zona",
 };
 
-// ─── Funciones de horarios ───
-function buildRestrMap(pairs) {
-  const map = {};
-  pairs.forEach((p) => {
-    if (!p.sinProblemas && p.restricciones?.length)
-      map[p.id] = new Set(p.restricciones);
-  });
-  return map;
+function calcZoneDistribution(numPairs) {
+  if (numPairs < 6) {
+    return { zonasDe3: Math.ceil(numPairs / 3), zonasDe4: 0 };
+  }
+  const mod = numPairs % 3;
+  if (mod === 0) return { zonasDe3: numPairs / 3, zonasDe4: 0 };
+  if (mod === 1) return { zonasDe3: (numPairs - 4) / 3, zonasDe4: 1 };
+  return { zonasDe3: (numPairs - 8) / 3, zonasDe4: 2 };
 }
 
-function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) {
+function getAvailableSlots(pair) {
+  const restricted = new Set(pair.restriccionesSlots || []);
+  const allKeys = ALL_SLOTS.map(s => `${s.dia}|${s.hora}`);
+  const uniqueKeys = [...new Set(allKeys)];
+  return uniqueKeys.filter(k => !restricted.has(k));
+}
+
+function calcCompatibilityScore(pairA, pairB) {
+  const slotsA = getAvailableSlots(pairA);
+  const slotsB = getAvailableSlots(pairB);
+  const setB = new Set(slotsB);
+  return slotsA.filter(s => setB.has(s)).length;
+}
+
+function scheduleMatches(newMatches, alreadyPlaced = [], pairMap = {}, isKnockout = false) {
   const occupied = new Set(
     alreadyPlaced.map((m) => `${m.dia}|${m.hora}|${m.cancha}`)
   );
@@ -84,18 +96,30 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) 
       }
     });
   });
+
+  const pairRestrictionSets = {};
+  for (const pid of Object.keys(pairMap)) {
+    pairRestrictionSets[pid] = new Set(pairMap[pid]?.restriccionesSlots || []);
+  }
+
   const isBlocked = (slot, p1id, p2id) => {
-    const r1 = pairRestrictions[p1id] || new Set();
-    const r2 = pairRestrictions[p2id] || new Set();
-    return slot.bloque && (r1.has(slot.bloque) || r2.has(slot.bloque));
+    const key = `${slot.dia}|${slot.hora}`;
+    const r1 = p1id ? (pairRestrictionSets[p1id] || new Set()) : new Set();
+    const r2 = p2id ? (pairRestrictionSets[p2id] || new Set()) : new Set();
+    return r1.has(key) || r2.has(key);
   };
+
+  const slotsToTry = isKnockout
+    ? [...ALL_SLOTS].sort((a, b) => b.mins - a.mins)
+    : ALL_SLOTS;
+
   return newMatches.map((m) => {
-    for (const slot of ALL_SLOTS) {
+    for (const slot of slotsToTry) {
       const key = `${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (occupied.has(key) || isBlocked(slot, m.p1id, m.p2id)) continue;
       const allTimes = [
-        ...(pairMins[m.p1id] || []),
-        ...(pairMins[m.p2id] || []),
+        ...(m.p1id ? pairMins[m.p1id] || [] : []),
+        ...(m.p2id ? pairMins[m.p2id] || [] : []),
       ];
       if (allTimes.every((t) => Math.abs(t - slot.mins) >= MIN_GAP)) {
         occupied.add(key);
@@ -108,7 +132,7 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) 
         return { ...m, ...slot };
       }
     }
-    for (const slot of ALL_SLOTS) {
+    for (const slot of slotsToTry) {
       const key = `${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (occupied.has(key) || isBlocked(slot, m.p1id, m.p2id)) continue;
       occupied.add(key);
@@ -120,7 +144,7 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) 
       });
       return { ...m, ...slot, conflict: true };
     }
-    for (const slot of ALL_SLOTS) {
+    for (const slot of slotsToTry) {
       const key = `${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (!occupied.has(key)) {
         occupied.add(key);
@@ -166,55 +190,125 @@ function calcStandings(pairIds, pairs, matches) {
     (id) =>
       (s[id] = { id, pts: 0, pj: 0, g: 0, per: 0, sg: 0, sp: 0, gg: 0, gp: 0 })
   );
-  matches
-    .filter(
-      (m) =>
-        m.done && pairIds.includes(m.p1id) && pairIds.includes(m.p2id)
-    )
-    .forEach((m) => {
-      const a = s[m.p1id],
-        b = s[m.p2id];
-      if (!a || !b) return;
-      let sa = 0,
-        sb = 0;
-      if (n(m.s1p1) > n(m.s1p2)) sa++;
-      else sb++;
-      if (n(m.s2p1) > n(m.s2p2)) sa++;
-      else sb++;
-      if (sa === sb) {
-        if (n(m.tbp1) > n(m.tbp2)) sa++;
+
+  const anyZona4 = matches.some(m => m.zona4 && pairIds.includes(m.p1id) && pairIds.includes(m.p2id));
+
+  if (anyZona4) {
+    matches
+      .filter(
+        (m) =>
+          m.done && pairIds.includes(m.p1id) && pairIds.includes(m.p2id)
+      )
+      .forEach((m) => {
+        const a = s[m.p1id],
+          b = s[m.p2id];
+        if (!a || !b) return;
+        let sa = 0,
+          sb = 0;
+        if (n(m.s1p1) > n(m.s1p2)) sa++;
         else sb++;
-      }
-      const ga = n(m.s1p1) + n(m.s2p1),
-        gb = n(m.s1p2) + n(m.s2p2);
-      a.pj++;
-      b.pj++;
-      a.sg += sa;
-      a.sp += sb;
-      b.sg += sb;
-      b.sp += sa;
-      a.gg += ga;
-      a.gp += gb;
-      b.gg += gb;
-      b.gp += ga;
-      if (sa > sb) {
-        a.g++;
-        a.pts += 2;
-        b.per++;
-      } else {
-        b.g++;
-        b.pts += 2;
-        a.per++;
-      }
-    });
-  return pairIds
-    .map((id) => ({ ...s[id], pair: byId[id] }))
-    .sort(
-      (a, b) =>
-        b.pts - a.pts ||
-        (b.sg - b.sp) - (a.sg - a.sp) ||
-        (b.gg - b.gp) - (a.gg - a.gp)
-    );
+        if (n(m.s2p1) > n(m.s2p2)) sa++;
+        else sb++;
+        if (sa === sb) {
+          if (n(m.tbp1) > n(m.tbp2)) sa++;
+          else sb++;
+        }
+        const ga = n(m.s1p1) + n(m.s2p1),
+          gb = n(m.s1p2) + n(m.s2p2);
+        a.pj++;
+        b.pj++;
+        a.sg += sa;
+        a.sp += sb;
+        b.sg += sb;
+        b.sp += sa;
+        a.gg += ga;
+        a.gp += gb;
+        b.gg += gb;
+        b.gp += ga;
+        if (sa > sb) {
+          a.g++;
+          a.pts += 2;
+          b.per++;
+        } else {
+          b.g++;
+          b.pts += 2;
+          a.per++;
+        }
+      });
+
+    const matchC = matches.find(m => m.zona4Tipo === "C" && m.done);
+    const matchD = matches.find(m => m.zona4Tipo === "D" && m.done);
+    const order = [];
+    if (matchC) {
+      const winnerC = calcMatchResult(matchC);
+      const loserC = winnerC === matchC.p1id ? matchC.p2id : matchC.p1id;
+      order[0] = winnerC;
+      order[1] = loserC;
+    }
+    if (matchD) {
+      const winnerD = calcMatchResult(matchD);
+      const loserD = winnerD === matchD.p1id ? matchD.p2id : matchD.p1id;
+      order[2] = winnerD;
+      order[3] = loserD;
+    }
+    const remaining = pairIds.filter(id => !order.includes(id));
+    for (let i = 0; i < 4; i++) {
+      if (!order[i] && remaining.length) order[i] = remaining.shift();
+    }
+    return order
+      .filter(id => id !== undefined)
+      .map(id => ({ ...s[id], pair: byId[id] }));
+  } else {
+    matches
+      .filter(
+        (m) =>
+          m.done && pairIds.includes(m.p1id) && pairIds.includes(m.p2id)
+      )
+      .forEach((m) => {
+        const a = s[m.p1id],
+          b = s[m.p2id];
+        if (!a || !b) return;
+        let sa = 0,
+          sb = 0;
+        if (n(m.s1p1) > n(m.s1p2)) sa++;
+        else sb++;
+        if (n(m.s2p1) > n(m.s2p2)) sa++;
+        else sb++;
+        if (sa === sb) {
+          if (n(m.tbp1) > n(m.tbp2)) sa++;
+          else sb++;
+        }
+        const ga = n(m.s1p1) + n(m.s2p1),
+          gb = n(m.s1p2) + n(m.s2p2);
+        a.pj++;
+        b.pj++;
+        a.sg += sa;
+        a.sp += sb;
+        b.sg += sb;
+        b.sp += sa;
+        a.gg += ga;
+        a.gp += gb;
+        b.gg += gb;
+        b.gp += ga;
+        if (sa > sb) {
+          a.g++;
+          a.pts += 2;
+          b.per++;
+        } else {
+          b.g++;
+          b.pts += 2;
+          a.per++;
+        }
+      });
+    return pairIds
+      .map((id) => ({ ...s[id], pair: byId[id] }))
+      .sort(
+        (a, b) =>
+          b.pts - a.pts ||
+          (b.sg - b.sp) - (a.sg - a.sp) ||
+          (b.gg - b.gp) - (a.gg - a.gp)
+      );
+  }
 }
 
 function buildBracket(classified) {
@@ -313,13 +407,12 @@ function calcPairStages(cat) {
   return stages;
 }
 
-// NUEVA FUNCIÓN para recalcular horarios de la llave en tiempo real
 function getKnockoutWithSchedules(knockoutRounds, existingMatches, parejas) {
   if (!knockoutRounds || !knockoutRounds.length) return knockoutRounds;
   const allMatches = knockoutRounds.flat().filter(m => !m.auto && m.p1id && m.p2id);
   if (allMatches.length === 0) return knockoutRounds;
-  const pairRestrictions = buildRestrMap(parejas);
-  const scheduled = scheduleMatches(allMatches, existingMatches, pairRestrictions);
+  const pairMap = Object.fromEntries(parejas.map(p => [p.id, p]));
+  const scheduled = scheduleMatches(allMatches, existingMatches, pairMap, true);
   const scheduledMap = new Map(scheduled.map(m => [m.id, m]));
   return knockoutRounds.map(round =>
     round.map(m => {
@@ -330,7 +423,6 @@ function getKnockoutWithSchedules(knockoutRounds, existingMatches, parejas) {
   );
 }
 
-// ─── CSS (completo, igual que antes) ───
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -478,7 +570,63 @@ const CSS = `
     .hero-title{font-size:38px}.nav-tabs{width:100%}
     .restr-grid{grid-template-columns:1fr 1fr}
   }
+  .slot-grid { display: flex; gap: 12px; overflow-x: auto; }
+  .slot-day-col { min-width: 140px; }
+  .slot-day-title { font-family: 'Oswald', sans-serif; font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: 1px; margin-bottom: 8px; text-transform: uppercase; }
+  .slot-btn { display: block; width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg3); color: var(--muted); font-size: 11px; font-weight: 500; cursor: pointer; margin-bottom: 4px; transition: all .15s; text-align: center; }
+  .slot-btn:hover { border-color: var(--muted); color: var(--text); }
+  .slot-btn.blocked { background: rgba(255,51,85,.12); border-color: rgba(255,51,85,.4); color: var(--danger); }
+  .mini-bracket { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .mini-match { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 11px; }
+  .mini-match-header { font-size: 10px; color: var(--accent); font-weight: 700; margin-bottom: 4px; }
+  .mini-team { display: flex; justify-content: space-between; }
+  .mini-team .tbd { color: var(--muted); font-style: italic; }
+  .mini-result { margin-top: 4px; font-family: 'Oswald', sans-serif; font-size: 10px; }
 `;
+
+// ===== PARTE 2 =====
+// ===== PARTE 2 =====
+// ─── Pin Modal ───
+function PinModal({ onSuccess, onClose }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = () => {
+    if (pin === ADMIN_PIN) {
+      sessionStorage.setItem("padelbox_admin", "true");
+      onSuccess();
+    } else {
+      setError("PIN incorrecto");
+    }
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">Acceso Administrador</div>
+        <div className="col mb12">
+          <label className="lbl">Ingresá el PIN</label>
+          <input
+            className="inp"
+            type="password"
+            inputMode="numeric"
+            maxLength={6}
+            value={pin}
+            onChange={(e) => { setPin(e.target.value); setError(""); }}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            autoFocus
+          />
+        </div>
+        {error && <div style={{ color: "var(--danger)", fontSize: 12, marginBottom: 12 }}>{error}</div>}
+        <div className="row g8">
+          <button className="btn btn-primary f1" onClick={handleSubmit}>Entrar como admin</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Result Modal ───
 function ResultModal({ match, cat, onSave, onClose }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
@@ -580,7 +728,7 @@ function ResultModal({ match, cat, onSave, onClose }) {
   );
 }
 
-// ─── Edit Pair Modal ───
+// ─── Edit Pair Modal (MODIFICADO: slots en vez de bloques) ───
 function EditPairModal({ pair, onSave, onClose }) {
   const [form, setForm] = useState({
     nombre: pair.nombre || "",
@@ -591,20 +739,30 @@ function EditPairModal({ pair, onSave, onClose }) {
     sinProblemas: pair.sinProblemas !== false,
     notasLibres: pair.notasLibres || "",
   });
-  const [restr, setRestr] = useState(new Set(pair.restricciones || []));
+  const [slotsRestr, setSlotsRestr] = useState(new Set(pair.restriccionesSlots || []));
   const s = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
-  function toggleBloque(id) {
-    setRestr((prev) => {
+
+  function toggleSlot(slotKey) {
+    setSlotsRestr((prev) => {
       const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
+      n.has(slotKey) ? n.delete(slotKey) : n.add(slotKey);
       return n;
     });
     if (form.sinProblemas) setForm((p) => ({ ...p, sinProblemas: false }));
   }
+
   function toggleSinProblemas() {
-    if (!form.sinProblemas) setRestr(new Set());
+    if (!form.sinProblemas) setSlotsRestr(new Set());
     setForm((p) => ({ ...p, sinProblemas: !p.sinProblemas }));
   }
+
+  const slotsByDay = SLOT_DEFS.reduce((acc, s) => {
+    const key = s.dia;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(s);
+    return acc;
+  }, {});
+
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal modal-lg" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "90vh", overflowY: "auto" }}>
@@ -635,33 +793,49 @@ function EditPairModal({ pair, onSave, onClose }) {
           </div>
         </div>
         <div className="divider" />
-        <div className="card-title" style={{ marginBottom: 12 }}>Restricciones de Horario</div>
+        <div className="card-title" style={{ marginBottom: 12 }}>Restricciones de Horario (Slots)</div>
         <button className={`restr-toggle${form.sinProblemas ? " active" : ""}`} onClick={toggleSinProblemas}>
           {form.sinProblemas ? "✅ Sin problemas de horario" : "☐ Sin problemas de horario"}
         </button>
         {!form.sinProblemas && (
           <>
-            <div className="lbl" style={{ marginBottom: 8 }}>Marcá los bloques donde NO pueden jugar</div>
-            <div className="restr-grid">
-              {BLOQUES.map((b) => (
-                <button
-                  key={b.id}
-                  className={`restr-bloque${restr.has(b.id) ? " blocked" : ""}`}
-                  onClick={() => toggleBloque(b.id)}
-                >
-                  <span>{restr.has(b.id) ? "🚫" : "🕐"}</span>
-                  {b.label}
-                </button>
+            <div className="lbl" style={{ marginBottom: 8 }}>Marcá los slots donde NO pueden jugar</div>
+            <div className="slot-grid">
+              {Object.entries(slotsByDay).map(([day, slots]) => (
+                <div key={day} className="slot-day-col">
+                  <div className="slot-day-title">{day}</div>
+                  {slots.map((slot) => {
+                    const key = `${slot.dia}|${slot.hora}`;
+                    const blocked = slotsRestr.has(key);
+                    return (
+                      <button
+                        key={key}
+                        className={`slot-btn${blocked ? " blocked" : ""}`}
+                        onClick={() => toggleSlot(key)}
+                      >
+                        {blocked ? "🚫" : "🕐"} {slot.hora}
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
             </div>
-            <div className="col mb12">
+            <div className="col mb12 mt8">
               <label className="lbl">Notas adicionales</label>
               <input className="inp" value={form.notasLibres} onChange={s("notasLibres")} placeholder="ej: solo pueden después de las 16hs el sábado" />
             </div>
           </>
         )}
         <div className="row g8 mt8">
-          <button className="btn btn-primary f1" onClick={() => onSave({ ...pair, ...form, j1: form.j1nombre, j2: form.j2nombre, restricciones: Array.from(restr), sinProblemas: form.sinProblemas })}>
+          <button className="btn btn-primary f1" onClick={() => onSave({
+            ...pair,
+            ...form,
+            j1: form.j1nombre,
+            j2: form.j2nombre,
+            restriccionesSlots: Array.from(slotsRestr),
+            sinProblemas: form.sinProblemas,
+            restricciones: undefined
+          })}>
             Guardar cambios
           </button>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -671,8 +845,8 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
-// ─── Inscripcion (igual) ───
-function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
+// ─── Inscripción (MODIFICADA: recibe isAdmin) ───
+function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }) {
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
   }
@@ -695,13 +869,38 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
       pagoJ1: false,
       pagoJ2: false,
       sinProblemas: true,
-      restricciones: [],
+      restriccionesSlots: [],
       notasLibres: "",
     });
     setForm(empty);
   }
   const s = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
   const totalPagos = cat.parejas.reduce((acc, p) => acc + (p.pagoJ1 ? 1 : 0) + (p.pagoJ2 ? 1 : 0), 0);
+
+  const formatSlots = (pair) => {
+    if (pair.sinProblemas !== false && !pair.restriccionesSlots?.length) {
+      return <span className="restr-badge restr-ok">✓ Sin problemas</span>;
+    }
+    const slots = pair.restriccionesSlots || [];
+    if (slots.length === 0) return <span className="restr-badge restr-ok">✓ Sin problemas</span>;
+    const byDay = {};
+    slots.forEach(s => {
+      const [dia, hora] = s.split("|");
+      if (!byDay[dia]) byDay[dia] = [];
+      byDay[dia].push(hora);
+    });
+    return (
+      <div className="col" style={{ gap: 2 }}>
+        {Object.entries(byDay).map(([dia, horas]) => (
+          <div key={dia} style={{ fontSize: 9, lineHeight: 1.3 }}>
+            🚫 {dia.slice(0,3)} {horas.join(", ")}
+          </div>
+        ))}
+        {pair.notasLibres && <div style={{ fontSize: 10, color: "var(--muted)" }}>{pair.notasLibres}</div>}
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="sec-hdr">
@@ -717,7 +916,7 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
         <div className="card mb16">
           <div className="row just-between mb12">
             <div className="card-title" style={{ margin: 0 }}>Agregar Pareja</div>
-            {cat.fixtureGenerado && <button className="icon-btn" onClick={() => setShowAdd(false)}>✕</button>}
+            {cat.fixtureGenerado && <button className="icon-btn" onClick={() => setShowAdd(false)} disabled={!isAdmin}>✕</button>}
           </div>
           <div className="col f1 mb12"><label className="lbl">Nombre pareja</label><input className="inp" placeholder="González / Martínez" value={form.nombre} onChange={s("nombre")} /></div>
           <div className="grid2 mb12">
@@ -726,10 +925,10 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
             <div className="col"><label className="lbl">J2 — Nombre</label><input className="inp" value={form.j2nombre} onChange={s("j2nombre")} /></div>
             <div className="col"><label className="lbl">J2 — Cédula</label><input className="inp" value={form.j2cedula} onChange={s("j2cedula")} placeholder="7654321" onKeyDown={(e) => e.key === "Enter" && handleAdd()} /></div>
           </div>
-          <button className="btn btn-primary" onClick={handleAdd}>+ Agregar pareja</button>
+          <button className="btn btn-primary" onClick={handleAdd} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>+ Agregar pareja</button>
         </div>
       ) : (
-        <div className="row mb16"><button className="btn btn-secondary" onClick={() => setShowAdd(true)}>+ Agregar pareja al fixture</button></div>
+        <div className="row mb16"><button className="btn btn-secondary" onClick={() => setShowAdd(true)} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>+ Agregar pareja al fixture</button></div>
       )}
       {cat.parejas.length === 0 ? (
         <div className="empty"><div className="empty-ico">👥</div><p>No hay parejas inscriptas aún</p></div>
@@ -744,28 +943,16 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
                   <td className="em">{p.nombre}</td>
                   <td>{p.j1nombre || p.j1}</td>
                   <td style={{ fontSize: 11, color: "var(--muted)" }}>{p.j1cedula || "—"}</td>
-                  <td><button className={`pago-pill ${p.pagoJ1 ? "pago-ok" : "pago-no"}`} onClick={() => onTogglePago(p.id, "pagoJ1")}>{p.pagoJ1 ? "✓ Pagado" : "✗ Pendiente"}</button></td>
+                  <td><button className={`pago-pill ${p.pagoJ1 ? "pago-ok" : "pago-no"}`} onClick={() => onTogglePago(p.id, "pagoJ1")} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>{p.pagoJ1 ? "✓ Pagado" : "✗ Pendiente"}</button></td>
                   <td>{p.j2nombre || p.j2}</td>
                   <td style={{ fontSize: 11, color: "var(--muted)" }}>{p.j2cedula || "—"}</td>
-                  <td><button className={`pago-pill ${p.pagoJ2 ? "pago-ok" : "pago-no"}`} onClick={() => onTogglePago(p.id, "pagoJ2")}>{p.pagoJ2 ? "✓ Pagado" : "✗ Pendiente"}</button></td>
-                  <td>
-                    {p.sinProblemas !== false && !p.restricciones?.length ? (
-                      <span className="restr-badge restr-ok">✓ Sin problemas</span>
-                    ) : (
-                      <div className="col" style={{ gap: 2 }}>
-                        {(p.restricciones || []).map((r) => {
-                          const b = BLOQUES.find((x) => x.id === r);
-                          return b ? <span key={r} className="restr-badge">🚫 {b.label}</span> : null;
-                        })}
-                        {p.notasLibres && <span style={{ fontSize: 10, color: "var(--muted)" }}>{p.notasLibres}</span>}
-                      </div>
-                    )}
-                  </td>
+                  <td><button className={`pago-pill ${p.pagoJ2 ? "pago-ok" : "pago-no"}`} onClick={() => onTogglePago(p.id, "pagoJ2")} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>{p.pagoJ2 ? "✓ Pagado" : "✗ Pendiente"}</button></td>
+                  <td>{formatSlots(p)}</td>
                   <td>{p.grupoId ? <span className="badge bg">{gName[p.grupoId] || "?"}</span> : <span className="badge bx">—</span>}</td>
                   <td>
                     <div className="row g8">
-                      <button className="btn btn-secondary btn-xs" onClick={() => onEditPair(p)}>✏️</button>
-                      {!cat.fixtureGenerado && <button className="btn btn-danger btn-xs" onClick={() => onDelete(p.id)}>✕</button>}
+                      <button className="btn btn-secondary btn-xs" onClick={() => onEditPair(p)} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>✏️</button>
+                      {!cat.fixtureGenerado && <button className="btn btn-danger btn-xs" onClick={() => onDelete(p.id)} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>✕</button>}
                     </div>
                   </td>
                 </tr>
@@ -778,8 +965,8 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   );
 }
 
-// ─── Fixture (igual) ───
-function Fixture({ cat, onGenerate }) {
+// ─── Fixture (MODIFICADO: recibe isAdmin) ───
+function Fixture({ cat, onGenerate, isAdmin }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
     return (
@@ -790,10 +977,10 @@ function Fixture({ cat, onGenerate }) {
           <p className="mb16" style={{ color: "var(--muted)" }}>
             {cat.parejas.length < 3
               ? `Necesitás al menos 3 parejas (tenés ${cat.parejas.length})`
-              : `${cat.parejas.length} parejas · ${Math.ceil(cat.parejas.length / 3)} zonas de 3`}
+              : `${cat.parejas.length} parejas · Zonas: ${calcZoneDistribution(cat.parejas.length).zonasDe3} de 3, ${calcZoneDistribution(cat.parejas.length).zonasDe4} de 4`}
           </p>
           {cat.parejas.length >= 3 && (
-            <button className="btn btn-primary" onClick={onGenerate}>⚡ Generar Fixture</button>
+            <button className="btn btn-primary" onClick={onGenerate} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>⚡ Generar Fixture</button>
           )}
         </div>
       </div>
@@ -816,6 +1003,8 @@ function Fixture({ cat, onGenerate }) {
       <div className="grid3 mb16">
         {cat.grupos.map((g) => {
           const gp = cat.parejas.filter((p) => p.grupoId === g.id);
+          const gm = cat.partidos.filter((m) => m.grupoId === g.id);
+          const isZona4 = gm.some(m => m.zona4);
           return (
             <div key={g.id} className="card" style={{ margin: 0 }}>
               <div className="card-title">{g.nombre}</div>
@@ -824,10 +1013,26 @@ function Fixture({ cat, onGenerate }) {
                   <span style={{ fontFamily: "Oswald", fontWeight: 700, color: "var(--muted)", fontSize: 12, minWidth: 16 }}>{i + 1}</span>
                   <div>
                     <div style={{ fontSize: 13, color: "var(--text)" }}>{p.nombre}</div>
-                    {(p.restricciones || []).length > 0 && <span style={{ fontSize: 10, color: "var(--danger)" }}>🚫 {p.restricciones.length} restricción{p.restricciones.length > 1 ? "es" : ""}</span>}
+                    {p.restriccionesSlots?.length > 0 && <span style={{ fontSize: 10, color: "var(--danger)" }}>🚫 {p.restriccionesSlots.length} restricción{p.restriccionesSlots.length > 1 ? "es" : ""}</span>}
                   </div>
                 </div>
               ))}
+              {isZona4 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>Partidos (mini‑playoff):</div>
+                  {gm.map(m => {
+                    const tipo = m.zona4Tipo;
+                    const p1 = m.p1id ? byId[m.p1id]?.nombre : "Por definir";
+                    const p2 = m.p2id ? byId[m.p2id]?.nombre : "Por definir";
+                    const dep = (tipo === "C" || tipo === "D") ? " (depende de A y B)" : "";
+                    return (
+                      <div key={m.id} style={{ fontSize: 11, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 700, color: "var(--accent)" }}>{tipo}:</span> {p1} vs {p2}{dep}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -845,7 +1050,7 @@ function Fixture({ cat, onGenerate }) {
                     <div>
                       <div className="slot-day">{m.dia}</div>
                       <div className="slot-time">{m.hora}</div>
-                      <div className="slot-match">{byId[m.p1id]?.nombre} vs {byId[m.p2id]?.nombre}</div>
+                      <div className="slot-match">{byId[m.p1id]?.nombre || "?"} vs {byId[m.p2id]?.nombre || "?"}</div>
                     </div>
                     <div className="col" style={{ alignItems: "flex-end", gap: 4 }}>
                       <span className="slot-code">{m.code}</span>
@@ -863,14 +1068,22 @@ function Fixture({ cat, onGenerate }) {
     </div>
   );
 }
-
-// ─── Resultados (igual) ───
-function Resultados({ cat, onOpen }) {
+// ===== PARTE 3 =====
+// ─── Resultados (MODIFICADO: recibe isAdmin) ───
+function Resultados({ cat, onOpen, isAdmin }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">⚡</div><p>Generá el fixture primero</p></div>;
   if (!cat.partidos || cat.partidos.length === 0)
     return <div className="empty"><div className="empty-ico">📋</div><p>No hay partidos cargados en esta categoría.</p></div>;
+
+  const isZona4PartidoPendiente = (m) => {
+    if (m.zona4 && (m.zona4Tipo === "C" || m.zona4Tipo === "D")) {
+      return !m.p1id || !m.p2id;
+    }
+    return false;
+  };
+
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Resultados</div><span className="badge bg">{cat.partidos.filter((m) => m.done).length}/{cat.partidos.length} completados</span></div>
@@ -884,11 +1097,16 @@ function Resultados({ cat, onOpen }) {
               <thead><tr><th>Cód</th><th>Pareja 1</th><th>Resultado</th><th>Pareja 2</th><th>Horario</th><th></th></tr></thead>
               <tbody>
                 {gm.map((m) => {
-                  const p1 = byId[m.p1id], p2 = byId[m.p2id], w = m.done ? (m.winner === m.p1id ? 1 : 2) : null;
+                  const p1 = m.p1id ? byId[m.p1id] : null;
+                  const p2 = m.p2id ? byId[m.p2id] : null;
+                  const pendienteDef = isZona4PartidoPendiente(m);
+                  const w = m.done ? (m.winner === m.p1id ? 1 : 2) : null;
                   return (
                     <tr key={m.id}>
                       <td><span className="slot-code">{m.code}</span></td>
-                      <td className={w === 1 ? "em" : ""} style={w === 1 ? { color: "var(--accent)", fontWeight: 700 } : {}}>{p1?.nombre}</td>
+                      <td className={w === 1 ? "em" : ""} style={w === 1 ? { color: "var(--accent)", fontWeight: 700 } : {}}>
+                        {pendienteDef ? "Por definir" : (p1?.nombre || "?")}
+                      </td>
                       <td>
                         {m.done ? (
                           <span>
@@ -900,9 +1118,20 @@ function Resultados({ cat, onOpen }) {
                           <span style={{ color: "var(--muted)", fontSize: 12 }}>Pendiente</span>
                         )}
                       </td>
-                      <td className={w === 2 ? "em" : ""} style={w === 2 ? { color: "var(--accent)", fontWeight: 700 } : {}}>{p2?.nombre}</td>
+                      <td className={w === 2 ? "em" : ""} style={w === 2 ? { color: "var(--accent)", fontWeight: 700 } : {}}>
+                        {pendienteDef ? "Por definir" : (p2?.nombre || "?")}
+                      </td>
                       <td style={{ fontSize: 11, color: "var(--muted)" }}>{m.dia} {m.hora} · {m.cancha}</td>
-                      <td><button className="btn btn-secondary btn-sm" onClick={() => onOpen(m)}>{m.done ? "✏️" : "+ Resultado"}</button></td>
+                      <td>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => isAdmin && onOpen(m)}
+                          disabled={pendienteDef || !isAdmin}
+                          style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}
+                        >
+                          {m.done ? "✏️" : (pendienteDef ? "⏳" : "+ Resultado")}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -915,10 +1144,68 @@ function Resultados({ cat, onOpen }) {
   );
 }
 
-// ─── Posiciones (igual) ───
+// ─── Posiciones (sin cambios funcionales; no requiere isAdmin pues no tiene botones) ───
 function Posiciones({ cat }) {
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">📊</div><p>Generá el fixture para ver las posiciones</p></div>;
+
+  const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
+
+  const MiniBracket = ({ groupId }) => {
+    const gm = cat.partidos.filter(m => m.grupoId === groupId && m.zona4);
+    const matchA = gm.find(m => m.zona4Tipo === "A");
+    const matchB = gm.find(m => m.zona4Tipo === "B");
+    const matchC = gm.find(m => m.zona4Tipo === "C");
+    const matchD = gm.find(m => m.zona4Tipo === "D");
+    const renderTeam = (match, isP1) => {
+      const pid = isP1 ? match?.p1id : match?.p2id;
+      const name = pid ? byId[pid]?.nombre : "Por definir";
+      const score = match?.done ? (isP1 ? `${match.s1p1} ${match.s2p1}` : `${match.s1p2} ${match.s2p2}`) : null;
+      return (
+        <div className={`mini-team ${!pid ? "tbd" : ""}`}>
+          <span>{name}</span>
+          {score && <span className="br-score">{score}</span>}
+        </div>
+      );
+    };
+    return (
+      <div className="mini-bracket">
+        <div className="mini-match">
+          <div className="mini-match-header">A (Ronda 1)</div>
+          {renderTeam(matchA, true)}
+          {renderTeam(matchA, false)}
+        </div>
+        <div className="mini-match">
+          <div className="mini-match-header">B (Ronda 1)</div>
+          {renderTeam(matchB, true)}
+          {renderTeam(matchB, false)}
+        </div>
+        <div className="mini-match">
+          <div className="mini-match-header">C (1° y 2° puesto)</div>
+          {matchC?.done ? (
+            <>
+              {renderTeam(matchC, true)}
+              {renderTeam(matchC, false)}
+            </>
+          ) : (
+            <div className="mini-team tbd">Pendiente de A y B</div>
+          )}
+        </div>
+        <div className="mini-match">
+          <div className="mini-match-header">D (3° y 4° puesto)</div>
+          {matchD?.done ? (
+            <>
+              {renderTeam(matchD, true)}
+              {renderTeam(matchD, false)}
+            </>
+          ) : (
+            <div className="mini-team tbd">Pendiente de A y B</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Posiciones</div></div>
@@ -926,9 +1213,11 @@ function Posiciones({ cat }) {
         {cat.grupos.map((g) => {
           const ids = cat.parejas.filter((p) => p.grupoId === g.id).map((p) => p.id);
           const st = calcStandings(ids, cat.parejas, cat.partidos.filter((m) => m.grupoId === g.id));
+          const isZona4 = cat.partidos.some(m => m.grupoId === g.id && m.zona4);
           return (
             <div key={g.id} className="card" style={{ margin: 0 }}>
               <div className="card-title">{g.nombre}</div>
+              {isZona4 && <MiniBracket groupId={g.id} />}
               <table className="tbl">
                 <thead><tr><th>Pos</th><th>Pareja</th><th>PJ</th><th>G</th><th>P</th><th>S+</th><th>S-</th><th>G+</th><th>G-</th><th>Pts</th></tr></thead>
                 <tbody>
@@ -951,20 +1240,19 @@ function Posiciones({ cat }) {
   );
 }
 
-// ─── Llave Final (MODIFICADA: usa getKnockoutWithSchedules) ───
+// ─── Llave Final (MODIFICADA: recibe isAdmin, onClick solo admin) ───
 const ROUND_NAMES = ["OCTAVOS", "CUARTOS", "SEMIS", "FINAL", "RONDA 5", "RONDA 6"];
-function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
+function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, pointsAwarded, isAdmin }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
-  // Recalcular horarios en cada render
   const knockoutRoundsWithSchedules = React.useMemo(() => {
     if (!cat.knockoutRounds) return [];
     return getKnockoutWithSchedules(cat.knockoutRounds, allMatches, cat.parejas);
   }, [cat.knockoutRounds, allMatches, cat.parejas]);
-  
+
   const koFlat = knockoutRoundsWithSchedules.flat();
   const koDone = koFlat.filter((m) => m.done && !m.auto).length;
   const koTotal = koFlat.filter((m) => !m.auto).length;
-  
+
   if (!cat.knockoutGenerated)
     return (
       <div>
@@ -978,7 +1266,7 @@ function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, points
               <p className="mb12" style={{ color: "var(--muted)" }}>
                 Zona: <strong style={{ color: "var(--accent)" }}>{cat.partidos.filter((m) => m.done).length}/{cat.partidos.length}</strong> partidos completados
               </p>
-              <button className="btn btn-primary" onClick={onGenerate}>🏆 Generar Llave Final</button>
+              <button className="btn btn-primary" onClick={onGenerate} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>🏆 Generar Llave Final</button>
             </>
           )}
         </div>
@@ -992,7 +1280,7 @@ function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, points
         <div className="sec-title">Llave Final</div>
         <div className="row g8 wrap">
           <span className="badge bb">{koDone}/{koTotal}</span>
-          {!pointsAwarded && koDone === koTotal && koTotal > 0 && <button className="btn btn-cyan btn-sm" onClick={onAwardPoints}>🏅 Otorgar puntos</button>}
+          {!pointsAwarded && koDone === koTotal && koTotal > 0 && <button className="btn btn-cyan btn-sm" onClick={onAwardPoints} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>🏅 Otorgar puntos</button>}
           {pointsAwarded && <span className="badge bg">✓ Puntos otorgados</span>}
         </div>
       </div>
@@ -1014,9 +1302,9 @@ function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, points
                   {round.map((m) => {
                     const p1 = m.p1id ? byId[m.p1id] : null,
                       p2 = m.p2id ? byId[m.p2id] : null,
-                      canPlay = m.p1id && m.p2id && !m.auto;
+                      canPlay = m.p1id && m.p2id && !m.auto && isAdmin;
                     return (
-                      <div key={m.id} className={`br-match${m.done ? " done" : ""}`} onClick={() => canPlay && onOpen(m)}>
+                      <div key={m.id} className={`br-match${m.done ? " done" : ""}`} onClick={() => canPlay && onOpen(m)} style={{ cursor: canPlay ? 'pointer' : 'default' }}>
                         <div className={`br-team${!p1 ? " tbd" : m.done && m.winner === m.p1id ? " win" : ""}`}>
                           <span>{p1 ? p1.nombre : m.p1label || "TBD"}</span>
                           {m.done && <span className="br-score">{m.s1p1} {m.s2p1}</span>}
@@ -1065,14 +1353,15 @@ function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, points
   );
 }
 
-// ─── JugadoresView (MODIFICADO: incluye botón eliminar) ───
-function JugadoresView({ jugadores, onDeleteJugador }) {
+// ─── JugadoresView (MODIFICADO: recibe isAdmin, eliminar solo si admin) ───
+function JugadoresView({ jugadores, onDeleteJugador, isAdmin }) {
   const [sel, setSel] = useState(null);
   const list = Object.values(jugadores).sort((a, b) => b.totalPts - a.totalPts);
   const jug = sel ? jugadores[sel] : null;
-  
+
   const handleDelete = (cedula, e) => {
     e.stopPropagation();
+    if (!isAdmin) return;
     if (window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)) {
       onDeleteJugador(cedula);
       if (sel === cedula) setSel(null);
@@ -1095,7 +1384,7 @@ function JugadoresView({ jugadores, onDeleteJugador }) {
                   <div className="rank-pts">{j.totalPts}</div>
                   <div className="rank-pts-lbl">puntos</div>
                 </div>
-                <button className="btn btn-danger btn-xs" onClick={(e) => handleDelete(j.cedula, e)}>🗑️</button>
+                <button className="btn btn-danger btn-xs" onClick={(e) => handleDelete(j.cedula, e)} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>🗑️</button>
               </div>
             ))}
           </div>
@@ -1122,6 +1411,7 @@ function JugadoresView({ jugadores, onDeleteJugador }) {
     </div>
   );
 }
+
 // ─── APP ───
 const TABS = [
   { id: "inscripcion", label: "👥 Inscripción" },
@@ -1145,33 +1435,45 @@ export default function App() {
   const [editingNameVal, setEditingNameVal] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
 
-  // Helper para operaciones Firestore
   const { db, firestore } = window;
   const { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, writeBatch } = firestore;
 
-  // Cargar torneos y jugadores al iniciar
+  useEffect(() => {
+    const adminSession = sessionStorage.getItem("padelbox_admin");
+    if (adminSession === "true") setIsAdmin(true);
+  }, []);
+
+  const migratePairRestrictions = (p) => {
+    if (!p.restriccionesSlots && p.restricciones) {
+      const newSlots = new Set();
+      p.restricciones.forEach(bloqueId => {
+        (BLOQUE_TO_SLOTS[bloqueId] || []).forEach(slot => newSlots.add(slot));
+      });
+      return { ...p, restriccionesSlots: Array.from(newSlots), restricciones: undefined };
+    }
+    return p;
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        // Cargar torneos
         const torneosCol = collection(db, "torneos");
         const torneosSnap = await getDocs(torneosCol);
         const torneosData = torneosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Cargar categorías, parejas, partidos, etc. para cada torneo
         const torneosCompletos = await Promise.all(torneosData.map(async (t) => {
           const catsCol = collection(db, "categorias");
           const q = query(catsCol, where("torneoId", "==", t.id));
           const catsSnap = await getDocs(q);
           const categorias = await Promise.all(catsSnap.docs.map(async (docCat) => {
             const cat = { id: docCat.id, ...docCat.data() };
-            // Cargar parejas
             const pairsCol = collection(db, "parejas");
             const qPairs = query(pairsCol, where("categoriaId", "==", cat.id));
             const pairsSnap = await getDocs(qPairs);
-            cat.parejas = pairsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            // Cargar partidos
+            cat.parejas = pairsSnap.docs.map(d => migratePairRestrictions({ id: d.id, ...d.data() }));
             const matchesCol = collection(db, "partidos");
             const qMatches = query(matchesCol, where("categoriaId", "==", cat.id));
             const matchesSnap = await getDocs(qMatches);
@@ -1181,7 +1483,6 @@ export default function App() {
           return { ...t, categorias };
         }));
         setTorneos(torneosCompletos);
-        // Cargar jugadores
         const jugCol = collection(db, "jugadores");
         const jugSnap = await getDocs(jugCol);
         const jugs = {};
@@ -1202,7 +1503,6 @@ export default function App() {
 
   const activeTorneo = torneos.find((t) => t.id === activeTId);
   const activeCat = activeTorneo?.categorias?.find((c) => c.id === activeCId);
-  // Todos los partidos del torneo (para restricciones de horario en llave)
   const allMatches = activeTorneo?.categorias?.flatMap(c => c.partidos) || [];
 
   function updateCat(catId, fn) {
@@ -1222,7 +1522,13 @@ export default function App() {
 
   async function guardarPareja(pareja) {
     const pairRef = doc(db, "parejas", pareja.id);
-    await setDoc(pairRef, { ...pareja, categoriaId: activeCId });
+    // FIX 1: eliminar campos undefined (restricciones ya no se envía)
+    const toSave = { ...pareja, categoriaId: activeCId };
+    delete toSave.restricciones;
+    // Asegurarse de no enviar undefined en j1, j2
+    if (toSave.j1 === undefined) delete toSave.j1;
+    if (toSave.j2 === undefined) delete toSave.j2;
+    await setDoc(pairRef, toSave);
   }
 
   async function guardarPartido(partido) {
@@ -1300,7 +1606,8 @@ export default function App() {
         s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
       }));
       const otherMatches = getAllOtherMatches(activeCId);
-      const sched = scheduleMatches(newRaw, [...c.partidos, ...otherMatches], buildRestrMap([...c.parejas, pw]));
+      const pairMap = Object.fromEntries([...c.parejas, pw].map(p => [p.id, p]));
+      const sched = scheduleMatches(newRaw, [...c.partidos, ...otherMatches], pairMap);
       const newPartidos = [...c.partidos, ...sched];
       updateCat(activeCId, () => ({ ...c, grupos: newGrupos, parejas: [...c.parejas, pw], partidos: newPartidos }));
       await guardarPareja(pw);
@@ -1311,20 +1618,24 @@ export default function App() {
 
   function eliminarPareja(id) {
     updateCat(activeCId, (c) => ({ ...c, parejas: c.parejas.filter((p) => p.id !== id) }));
-    // Opcional: eliminar de Firestore
   }
 
   async function editarPareja(updated) {
-    updateCat(activeCId, (c) => ({ ...c, parejas: c.parejas.map((p) => (p.id === updated.id ? updated : p)) }));
+    const updatedClean = migratePairRestrictions(updated);
+    updateCat(activeCId, (c) => ({
+      ...c,
+      parejas: c.parejas.map((p) => (p.id === updatedClean.id ? updatedClean : p))
+    }));
     setJugadores((prev) => {
       const nxt = { ...prev };
-      [{ cedula: updated.j1cedula, nombre: updated.j1nombre || updated.j1 }, { cedula: updated.j2cedula, nombre: updated.j2nombre || updated.j2 }]
+      [{ cedula: updatedClean.j1cedula, nombre: updatedClean.j1nombre || updatedClean.j1 },
+       { cedula: updatedClean.j2cedula, nombre: updatedClean.j2nombre || updatedClean.j2 }]
         .filter((j) => j.cedula && nxt[j.cedula])
         .forEach((j) => { nxt[j.cedula] = { ...nxt[j.cedula], nombre: j.nombre }; });
       return nxt;
     });
     setModal(null);
-    await guardarPareja(updated);
+    await guardarPareja(updatedClean);
   }
 
   async function togglePago(pairId, field) {
@@ -1346,39 +1657,197 @@ export default function App() {
 
   async function generarFixture() {
     if (!activeCat || activeCat.parejas.length < 3) return;
-    const numGroups = Math.ceil(activeCat.parejas.length / 3);
-    const grupos = Array.from({ length: numGroups }, (_, i) => ({ id: uid(), nombre: `ZONA ${LETTERS[i]}` }));
-    const assignedPairs = activeCat.parejas.map((p, i) => ({ ...p, grupoId: grupos[Math.floor(i / 3)].id }));
-    let code = 1; const raw = [];
-    grupos.forEach((g) => {
-      const gIds = assignedPairs.filter((p) => p.grupoId === g.id).map((p) => p.id);
-      roundRobin(gIds).forEach(([p1id, p2id]) => raw.push({ id: uid(), type: "grupo", grupoId: g.id, p1id, p2id, code: `Z${code++}`, done: false, winner: null, s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "" }));
+    const pairs = activeCat.parejas;
+    const dist = calcZoneDistribution(pairs.length);
+    const totalZonas = dist.zonasDe3 + dist.zonasDe4;
+    const grupos = [];
+    let letterIdx = 0;
+    for (let i = 0; i < dist.zonasDe3; i++) {
+      grupos.push({ id: uid(), nombre: `ZONA ${LETTERS[letterIdx++]}` });
+    }
+    for (let i = 0; i < dist.zonasDe4; i++) {
+      grupos.push({ id: uid(), nombre: `ZONA ${LETTERS[letterIdx++]}` });
+    }
+
+    const availablePairs = pairs.map(p => ({ ...p, grupoId: null }));
+    const pairMap = Object.fromEntries(availablePairs.map(p => [p.id, p]));
+    const sortedPairs = [...availablePairs].sort((a, b) => {
+      const aSlots = getAvailableSlots(a).length;
+      const bSlots = getAvailableSlots(b).length;
+      return aSlots - bSlots;
     });
+
+    const zonas3 = grupos.filter((_, i) => i < dist.zonasDe3);
+    const zonas4 = grupos.filter((_, i) => i >= dist.zonasDe3);
+
+    const assignToZones = (pairsList, zones, size) => {
+      const remaining = pairsList.filter(p => p.grupoId === null);
+      for (const zone of zones) {
+        if (remaining.length === 0) break;
+        const seed = remaining.shift();
+        seed.grupoId = zone.id;
+        const candidates = remaining.filter(p => p.grupoId === null);
+        const withScores = candidates.map(p => ({
+          p,
+          score: calcCompatibilityScore(seed, p)
+        }));
+        withScores.sort((a, b) => b.score - a.score);
+        const needed = size - 1;
+        for (let i = 0; i < needed && i < withScores.length; i++) {
+          withScores[i].p.grupoId = zone.id;
+          const idx = remaining.findIndex(x => x.id === withScores[i].p.id);
+          if (idx !== -1) remaining.splice(idx, 1);
+        }
+      }
+    };
+
+    assignToZones(sortedPairs, zonas3, 3);
+    assignToZones(sortedPairs, zonas4, 4);
+
+    const assignedPairs = pairs.map(p => {
+      const found = availablePairs.find(ap => ap.id === p.id);
+      return found ? { ...p, grupoId: found.grupoId } : p;
+    });
+
+    let code = 1;
+    const raw = [];
+    grupos.forEach((g) => {
+      const gIds = assignedPairs.filter(p => p.grupoId === g.id).map(p => p.id);
+      const isZona4 = gIds.length === 4;
+      if (isZona4) {
+        const grupoId = g.id;
+        raw.push({
+          id: uid(), type: "grupo", grupoId, code: `Z${code++}`,
+          p1id: gIds[0], p2id: gIds[1],
+          done: false, winner: null,
+          s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
+          zona4: true, zona4Tipo: "A", zona4GrupoId: grupoId
+        });
+        raw.push({
+          id: uid(), type: "grupo", grupoId, code: `Z${code++}`,
+          p1id: gIds[2], p2id: gIds[3],
+          done: false, winner: null,
+          s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
+          zona4: true, zona4Tipo: "B", zona4GrupoId: grupoId
+        });
+        raw.push({
+          id: uid(), type: "grupo", grupoId, code: `Z${code++}`,
+          p1id: null, p2id: null,
+          done: false, winner: null,
+          s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
+          zona4: true, zona4Tipo: "C", zona4GrupoId: grupoId
+        });
+        raw.push({
+          id: uid(), type: "grupo", grupoId, code: `Z${code++}`,
+          p1id: null, p2id: null,
+          done: false, winner: null,
+          s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
+          zona4: true, zona4Tipo: "D", zona4GrupoId: grupoId
+        });
+      } else {
+        roundRobin(gIds).forEach(([p1id, p2id]) =>
+          raw.push({
+            id: uid(), type: "grupo", grupoId: g.id, p1id, p2id,
+            code: `Z${code++}`, done: false, winner: null,
+            s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
+          })
+        );
+      }
+    });
+
     const otherMatches = getAllOtherMatches(activeCId);
-    const sched = scheduleMatches(raw, otherMatches, buildRestrMap(assignedPairs));
-    const updatedCat = { ...activeCat, parejas: assignedPairs, grupos, partidos: sched, fixtureGenerado: true };
+    const rawWithoutNulls = raw.filter(m => m.p1id && m.p2id);
+    const rawWithNulls = raw.filter(m => !m.p1id || !m.p2id);
+    const sched = scheduleMatches(rawWithoutNulls, otherMatches, pairMap);
+    const partidos = [...sched, ...rawWithNulls];
+
+    const updatedCat = { ...activeCat, parejas: assignedPairs, grupos, partidos, fixtureGenerado: true };
     updateCat(activeCId, () => updatedCat);
     await guardarCategoria({ ...updatedCat, id: activeCId });
     await Promise.all(assignedPairs.map(p => guardarPareja(p)));
-    await Promise.all(sched.map(m => guardarPartido(m)));
+    await Promise.all(partidos.map(m => guardarPartido(m)));
   }
 
   async function guardarResultado(matchId, result) {
+    // FIX 2: calcular cambios de C y D antes de updateCat, usando activeCat
+    const cat = torneos.find(t => t.id === activeTId)?.categorias?.find(c => c.id === activeCId);
+    if (!cat) return;
+
+    const m = cat.partidos.find(p => p.id === matchId);
+    if (!m) return;
+
+    let updatedC = null;
+    let updatedD = null;
+
+    // Calcular los cambios de los partidos dependientes si es A o B
+    if (m.zona4 && (m.zona4Tipo === "A" || m.zona4Tipo === "B") && result.done) {
+      const updatedMatch = { ...m, ...result, winner: calcMatchResult({ ...m, ...result }) };
+      const winnerId = updatedMatch.winner;
+      const loserId = winnerId === updatedMatch.p1id ? updatedMatch.p2id : updatedMatch.p1id;
+
+      const matchC = cat.partidos.find(p => p.zona4 && p.zona4GrupoId === m.zona4GrupoId && p.zona4Tipo === "C");
+      const matchD = cat.partidos.find(p => p.zona4 && p.zona4GrupoId === m.zona4GrupoId && p.zona4Tipo === "D");
+
+      if (m.zona4Tipo === "A") {
+        if (matchC) {
+          updatedC = { ...matchC, p1id: winnerId };
+        }
+        if (matchD) {
+          updatedD = { ...matchD, p1id: loserId };
+        }
+      } else if (m.zona4Tipo === "B") {
+        if (matchC) {
+          updatedC = { ...matchC, p2id: winnerId };
+        }
+        if (matchD) {
+          updatedD = { ...matchD, p2id: loserId };
+        }
+      }
+    }
+
+    // Ahora sí actualizar estado con updateCat
     updateCat(activeCId, (c) => {
-      const m = c.partidos.find((p) => p.id === matchId); if (!m) return c;
-      const winner = result.done ? calcMatchResult({ ...m, ...result }) : null;
-      return { ...c, partidos: c.partidos.map((p) => (p.id === matchId ? { ...p, ...result, winner } : p)) };
+      let newPartidos = c.partidos.map((p) => {
+        if (p.id === matchId) {
+          const winner = result.done ? calcMatchResult({ ...p, ...result }) : null;
+          return { ...p, ...result, winner };
+        }
+        return p;
+      });
+
+      if (updatedC) {
+        newPartidos = newPartidos.map(p => p.id === updatedC.id ? updatedC : p);
+      }
+      if (updatedD) {
+        newPartidos = newPartidos.map(p => p.id === updatedD.id ? updatedD : p);
+      }
+
+      return { ...c, partidos: newPartidos };
     });
+
     setModal(null);
+
+    // Persistir en Firestore
     const matchRef = doc(db, "partidos", matchId);
     await updateDoc(matchRef, result);
+
+    if (updatedC) {
+      const { id, ...dataC } = updatedC;
+      await updateDoc(doc(db, "partidos", id), dataC);
+    }
+    if (updatedD) {
+      const { id, ...dataD } = updatedD;
+      await updateDoc(doc(db, "partidos", id), dataD);
+    }
   }
 
   async function guardarResultadoKnockout(matchId, result) {
     const fm = activeCat.knockoutRounds.flat().find((m) => m.id === matchId);
     if (!fm) return;
     const winner = result.done ? calcMatchResult({ ...fm, ...result }) : null;
-    let nr = activeCat.knockoutRounds.map((round) => round.map((m) => (m.id === matchId ? { ...m, ...result, winner, done: !!result.done } : m)));
+    let nr = activeCat.knockoutRounds.map((round) =>
+      round.map((m) => (m.id === matchId ? { ...m, ...result, winner, done: !!result.done } : m))
+    );
     if (winner) {
       nr.forEach((round, ri) => {
         round.forEach((m) => {
@@ -1413,8 +1882,8 @@ export default function App() {
         )
       : [];
     const allKoMatches = rawRounds.flat().filter((m) => !m.auto && m.p1id && m.p2id);
-    const pairRestrictions = buildRestrMap(activeCat.parejas);
-    const scheduledKo = scheduleMatches(allKoMatches, alreadyScheduled, pairRestrictions);
+    const pairMap = Object.fromEntries(activeCat.parejas.map(p => [p.id, p]));
+    const scheduledKo = scheduleMatches(allKoMatches, alreadyScheduled, pairMap, true);
     const newRounds = rawRounds.map((round) =>
       round.map((m) => {
         if (m.auto) return m;
@@ -1501,9 +1970,13 @@ export default function App() {
     setTorneos((p) => p.filter((x) => x.id !== torneoId));
     try {
       await deleteDoc(doc(db, "torneos", torneoId));
-      // Opcional: eliminar subcolecciones
     } catch (err) { console.error(err); }
   }
+
+  const handleLogoutAdmin = () => {
+    sessionStorage.removeItem("padelbox_admin");
+    setIsAdmin(false);
+  };
 
   if (loading) {
     return (
@@ -1549,16 +2022,21 @@ export default function App() {
               <button className={`nav-tab${appView === "torneos" ? " on" : ""}`} onClick={() => setAppView("torneos")}>🎾 Torneos</button>
               <button className={`nav-tab jug${appView === "jugadores" ? " on" : ""}`} onClick={() => setAppView("jugadores")}>🏅 Jugadores</button>
             </div>
+            {isAdmin ? (
+              <button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{ marginLeft: 8 }}>🔓 Admin</button>
+            ) : (
+              <button className="btn btn-ghost btn-xs" onClick={() => setShowPinModal(true)} style={{ marginLeft: 8 }}>🔑</button>
+            )}
           </header>
           <div className="main">
             {appView === "jugadores" ? (
-              <JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} />
+              <JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} isAdmin={isAdmin} />
             ) : (
               <>
                 <div className="hero">
                   <div className="hero-title">GESTIÓN DE<br/><span>TORNEOS</span></div>
                   <div className="hero-sub">Creá, organizá y gestioná todos tus torneos de pádel</div>
-                  <button className="btn btn-primary" onClick={() => setModal({ type: "newT" })}>+ Nuevo Torneo</button>
+                  <button className="btn btn-primary" onClick={() => setModal({ type: "newT" })} disabled={!isAdmin} style={{ opacity: isAdmin ? 1 : 0.4, cursor: isAdmin ? 'pointer' : 'not-allowed' }}>+ Nuevo Torneo</button>
                 </div>
                 {torneos.length === 0 ? (
                   <div className="empty"><div className="empty-ico">🎾</div><p>No hay torneos creados aún</p></div>
@@ -1572,9 +2050,11 @@ export default function App() {
                           {t.categorias.map((c) => <span key={c.id} className="badge bb">{c.nombre}</span>)}
                           {!t.categorias.length && <span className="badge bx">Sin categorías</span>}
                         </div>
-                        <div className="t-card-del" onClick={(e) => { e.stopPropagation(); if (window.confirm("¿Eliminar este torneo?")) eliminarTorneo(t.id); }}>
-                          <button className="btn btn-danger btn-xs">Eliminar</button>
-                        </div>
+                        {isAdmin && (
+                          <div className="t-card-del" onClick={(e) => { e.stopPropagation(); if (window.confirm("¿Eliminar este torneo?")) eliminarTorneo(t.id); }}>
+                            <button className="btn btn-danger btn-xs">Eliminar</button>
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1592,6 +2072,7 @@ export default function App() {
               </div>
             </div>
           )}
+          {showPinModal && <PinModal onSuccess={() => { setShowPinModal(false); setIsAdmin(true); }} onClose={() => setShowPinModal(false)} />}
         </div>
       </>
     );
@@ -1613,26 +2094,31 @@ export default function App() {
             ) : (
               <>
                 <div className="hdr-name">{activeTorneo?.nombre}</div>
-                <button className="icon-btn" onClick={() => { setEditingNameVal(activeTorneo?.nombre || ""); setEditingName(true); }}>✏️</button>
+                {isAdmin && <button className="icon-btn" onClick={() => { setEditingNameVal(activeTorneo?.nombre || ""); setEditingName(true); }}>✏️</button>}
               </>
             )}
           </div>
           <div className="nav-tabs" style={{ marginLeft: "auto" }}>
             {TABS.map((tab) => <button key={tab.id} className={`nav-tab${subview === tab.id ? " on" : ""}`} onClick={() => setSubview(tab.id)}>{tab.label}</button>)}
           </div>
+          {isAdmin ? (
+            <button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{ marginLeft: 8 }}>🔓 Admin</button>
+          ) : (
+            <button className="btn btn-ghost btn-xs" onClick={() => setShowPinModal(true)} style={{ marginLeft: 8 }}>🔑</button>
+          )}
         </header>
         <div className="main">
           <div className="cat-tabs">
             {activeTorneo?.categorias?.map((c) => <button key={c.id} className={`cat-tab${activeCId === c.id ? " on" : ""}`} onClick={() => setActiveCId(c.id)}>{c.nombre}</button>)}
-            <button className="cat-tab add" onClick={() => setModal({ type: "newC" })}>+ Categoría</button>
+            {isAdmin && <button className="cat-tab add" onClick={() => setModal({ type: "newC" })}>+ Categoría</button>}
           </div>
           {!activeCat ? <div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoría</p></div> : (
             <>
-              {subview === "inscripcion" && <Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} />}
-              {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} />}
-              {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => setModal({ type: "res", match: m })} />}
+              {subview === "inscripcion" && <Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} isAdmin={isAdmin} />}
+              {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} />}
+              {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => isAdmin && setModal({ type: "res", match: m })} isAdmin={isAdmin} />}
               {subview === "posiciones" && <Posiciones cat={activeCat} />}
-              {subview === "llave" && <LlaveFinal cat={activeCat} allMatches={allMatches} onGenerate={generarKnockout} onOpen={(m) => setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} />}
+              {subview === "llave" && <LlaveFinal cat={activeCat} allMatches={allMatches} onGenerate={generarKnockout} onOpen={(m) => isAdmin && setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} />}
             </>
           )}
         </div>
@@ -1648,6 +2134,7 @@ export default function App() {
         {modal?.type === "editPair" && <EditPairModal pair={modal.pair} onSave={editarPareja} onClose={() => setModal(null)} />}
         {modal?.type === "res" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={() => setModal(null)} />}
         {modal?.type === "koRes" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={() => setModal(null)} />}
+        {showPinModal && <PinModal onSuccess={() => { setShowPinModal(false); setIsAdmin(true); }} onClose={() => setShowPinModal(false)} />}
       </div>
     </>
   );
