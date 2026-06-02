@@ -390,7 +390,7 @@ const CSS = `
   }
 `;
 
-/* ─── Componentes modales y vistas sin cambios ─── */
+/* ─── Result Modal ─── */
 function ResultModal({ match, cat, onSave, onClose }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   const [form, setForm] = useState({
@@ -491,6 +491,7 @@ function ResultModal({ match, cat, onSave, onClose }) {
   );
 }
 
+/* ─── Edit Pair Modal (con restricciones) ─── */
 function EditPairModal({ pair, onSave, onClose }) {
   const [form, setForm] = useState({
     nombre: pair.nombre || "",
@@ -581,6 +582,7 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
+/* ─── Inscripcion ─── */
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
@@ -687,6 +689,7 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   );
 }
 
+/* ─── Fixture ─── */
 function Fixture({ cat, onGenerate }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -772,6 +775,7 @@ function Fixture({ cat, onGenerate }) {
   );
 }
 
+/* ─── Resultados ─── */
 function Resultados({ cat, onOpen }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -822,6 +826,7 @@ function Resultados({ cat, onOpen }) {
   );
 }
 
+/* ─── Posiciones ─── */
 function Posiciones({ cat }) {
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">📊</div><p>Generá el fixture para ver las posiciones</p></div>;
@@ -1267,9 +1272,12 @@ export default function App() {
     updateCat(activeCId, (c) => ({ ...c, knockoutRounds: nr }));
     setModal(null);
     try {
-      await apiPost("savePartido", { partido: { id: matchId, ...result } });
+      // Los partidos de llave NO están en la hoja PARTIDOS,
+      // solo guardamos el JSON completo del knockout
       await apiPost("saveKnockout", { categoriaId: activeCId, roundsJSON: nr });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("Error al guardar resultado de llave:", err);
+    }
   }
 
   async function generateKnockout() {
