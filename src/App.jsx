@@ -6,7 +6,7 @@ const COURTS = ["BOX 3", "BOX 2", "BOX 1"];
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const n = (x) => parseInt(x) || 0;
 const MIN_GAP = 300;
-const ADMIN_PIN = "1234";
+const ADMIN_PIN = "2858";
 
 const SLOT_DEFS = [
   { dia: "JUEVES", hora: "19:00", mins: 1140, bloque: "jue_noche" },
