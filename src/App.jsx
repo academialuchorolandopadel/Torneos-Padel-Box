@@ -583,7 +583,6 @@ function EditPairModal({ pair, onSave, onClose }) {
 
 /* ─── Inscripcion ─── */
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
-  // Protección contra categoría sin datos completos
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
   }
@@ -1030,7 +1029,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Carga inicial con categorías seguras (arrays vacíos)
   useEffect(() => {
     (async () => {
       try {
@@ -1039,7 +1037,6 @@ export default function App() {
           api("getAllTorneos"),
           api("getAllJugadores"),
         ]);
-        // Inicializar todas las categorías con arrays vacíos
         const safeTorneos = torneosData.map((t) => ({
           ...t,
           categorias: (t.categorias || []).map((c) => ({
@@ -1081,7 +1078,6 @@ export default function App() {
     );
   }
 
-  // Abrir torneo con parseo seguro de roundsJSON
   async function handleOpenTorneo(torneoId) {
     setActiveTId(torneoId);
     setActiveCId(null);
@@ -1100,7 +1096,14 @@ export default function App() {
           ...c,
           parejas: c.parejas || [],
           grupos: c.grupos || [],
-          partidos: c.partidos || [],
+          partidos: (c.partidos || []).map(m => ({
+            ...m,
+            mins: (m.mins !== "" && m.mins !== null && m.mins !== undefined)
+              ? Number(m.mins) : null,
+            done: m.done === true || m.done === "true" || m.done === "TRUE",
+            conflict: m.conflict === true || m.conflict === "true" || m.conflict === "TRUE",
+            restrictionConflict: m.restrictionConflict === true || m.restrictionConflict === "true" || m.restrictionConflict === "TRUE",
+          })),
           knockoutRounds,
           fixtureGenerado: c.fixtureGenerado === true || c.fixtureGenerado === "true",
           knockoutGenerated: c.knockoutGenerated === true || c.knockoutGenerated === "true",
@@ -1365,10 +1368,9 @@ export default function App() {
         const resJug = await apiPost("saveJugadores", { jugadores: nuevosJugadores });
         if (!resJug.success) throw new Error("No se guardaron los jugadores");
       }
-      const resCat = await apiPost("saveCategoria", {
+      await apiPost("saveCategoria", {
         categoria: { id: activeCId, torneoId: activeTId, pointsAwarded: true },
       });
-      if (!resCat.success) throw new Error("No se actualizó la categoría");
       alert("✅ Puntos guardados correctamente");
     } catch (err) {
       alert("❌ Error al guardar los puntos: " + err.message);
