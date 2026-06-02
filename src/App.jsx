@@ -39,9 +39,18 @@ const SLOT_DEFS = [
   { dia: "DOMINGO", hora: "14:15", mins: 5175, bloque: "dom_tarde" },
   { dia: "DOMINGO", hora: "15:30", mins: 5250, bloque: "dom_tarde" },
 ];
-const ALL_SLOTS = SLOT_DEFS.flatMap((s) => COURTS.map((c) => ({ ...s, cancha: c })));
+const ALL_SLOTS = SLOT_DEFS.flatMap((s) =>
+  COURTS.map((c) => ({ ...s, cancha: c }))
+);
 
-const STAGE_PTS = { campeon: 100, finalista: 75, semifinal: 50, cuartos: 25, octavos: 15, zona: 10 };
+const STAGE_PTS = {
+  campeon: 100,
+  finalista: 75,
+  semifinal: 50,
+  cuartos: 25,
+  octavos: 15,
+  zona: 10,
+};
 const STAGE_LABEL = {
   campeon: "🥇 Campeón",
   finalista: "🥈 Finalista",
@@ -51,46 +60,20 @@ const STAGE_LABEL = {
   zona: "📍 Zona",
 };
 
-// ─── API ───
-const API_BASE = "https://script.google.com/macros/s/AKfycbxJUZmFw3eGZKORu-ItQmrUC9sBm6wvdnofe7izbeqmZ54h5dfXAGbAALOCtM2t1KBz-w/exec";
-const TOKEN = "padelbox2026secreto";
-
-async function api(action, params = {}) {
-  const url = new URL(API_BASE);
-  url.searchParams.set("token", TOKEN);
-  url.searchParams.set("action", action);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`Error ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json;
-}
-
-async function apiPost(action, data = {}) {
-  const url = new URL(API_BASE);
-  url.searchParams.set("token", TOKEN);
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ action, ...data }),
-  });
-  if (!res.ok) throw new Error(`Error ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json;
-}
-
+// ─── Funciones de horarios ───
 function buildRestrMap(pairs) {
   const map = {};
   pairs.forEach((p) => {
-    if (!p.sinProblemas && p.restricciones?.length) map[p.id] = new Set(p.restricciones);
+    if (!p.sinProblemas && p.restricciones?.length)
+      map[p.id] = new Set(p.restricciones);
   });
   return map;
 }
 
 function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) {
-  const occupied = new Set(alreadyPlaced.map((m) => `${m.dia}|${m.hora}|${m.cancha}`));
+  const occupied = new Set(
+    alreadyPlaced.map((m) => `${m.dia}|${m.hora}|${m.cancha}`)
+  );
   const pairMins = {};
   alreadyPlaced.forEach((m) => {
     if (m.mins == null) return;
@@ -110,7 +93,10 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) 
     for (const slot of ALL_SLOTS) {
       const key = `${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (occupied.has(key) || isBlocked(slot, m.p1id, m.p2id)) continue;
-      const allTimes = [...(pairMins[m.p1id] || []), ...(pairMins[m.p2id] || [])];
+      const allTimes = [
+        ...(pairMins[m.p1id] || []),
+        ...(pairMins[m.p2id] || []),
+      ];
       if (allTimes.every((t) => Math.abs(t - slot.mins) >= MIN_GAP)) {
         occupied.add(key);
         [m.p1id, m.p2id].forEach((pid) => {
@@ -141,44 +127,94 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairRestrictions = {}) 
         return { ...m, ...slot, conflict: true, restrictionConflict: true };
       }
     }
-    return { ...m, dia: "?", hora: "?", cancha: COURTS[0], conflict: true, restrictionConflict: true };
+    return {
+      ...m,
+      dia: "?",
+      hora: "?",
+      cancha: COURTS[0],
+      conflict: true,
+      restrictionConflict: true,
+    };
   });
 }
 
 function roundRobin(ids) {
   const m = [];
-  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) m.push([ids[i], ids[j]]);
+  for (let i = 0; i < ids.length; i++)
+    for (let j = i + 1; j < ids.length; j++) m.push([ids[i], ids[j]]);
   return m;
 }
 
 function calcMatchResult(m) {
-  let sa = 0, sb = 0;
-  if (n(m.s1p1) > n(m.s1p2)) sa++; else sb++;
-  if (n(m.s2p1) > n(m.s2p2)) sa++; else sb++;
-  if (sa === sb) { if (n(m.tbp1) > n(m.tbp2)) sa++; else sb++; }
+  let sa = 0,
+    sb = 0;
+  if (n(m.s1p1) > n(m.s1p2)) sa++;
+  else sb++;
+  if (n(m.s2p1) > n(m.s2p2)) sa++;
+  else sb++;
+  if (sa === sb) {
+    if (n(m.tbp1) > n(m.tbp2)) sa++;
+    else sb++;
+  }
   return sa > sb ? m.p1id : m.p2id;
 }
 
 function calcStandings(pairIds, pairs, matches) {
   const byId = Object.fromEntries(pairs.map((p) => [p.id, p]));
   const s = {};
-  pairIds.forEach((id) => (s[id] = { id, pts: 0, pj: 0, g: 0, per: 0, sg: 0, sp: 0, gg: 0, gp: 0 }));
+  pairIds.forEach(
+    (id) =>
+      (s[id] = { id, pts: 0, pj: 0, g: 0, per: 0, sg: 0, sp: 0, gg: 0, gp: 0 })
+  );
   matches
-    .filter((m) => m.done && pairIds.includes(m.p1id) && pairIds.includes(m.p2id))
+    .filter(
+      (m) =>
+        m.done && pairIds.includes(m.p1id) && pairIds.includes(m.p2id)
+    )
     .forEach((m) => {
-      const a = s[m.p1id], b = s[m.p2id];
+      const a = s[m.p1id],
+        b = s[m.p2id];
       if (!a || !b) return;
-      let sa = 0, sb = 0;
-      if (n(m.s1p1) > n(m.s1p2)) sa++; else sb++;
-      if (n(m.s2p1) > n(m.s2p2)) sa++; else sb++;
-      if (sa === sb) { if (n(m.tbp1) > n(m.tbp2)) sa++; else sb++; }
-      const ga = n(m.s1p1) + n(m.s2p1), gb = n(m.s1p2) + n(m.s2p2);
-      a.pj++; b.pj++; a.sg += sa; a.sp += sb; b.sg += sb; b.sp += sa; a.gg += ga; a.gp += gb; b.gg += gb; b.gp += ga;
-      if (sa > sb) { a.g++; a.pts += 2; b.per++; } else { b.g++; b.pts += 2; a.per++; }
+      let sa = 0,
+        sb = 0;
+      if (n(m.s1p1) > n(m.s1p2)) sa++;
+      else sb++;
+      if (n(m.s2p1) > n(m.s2p2)) sa++;
+      else sb++;
+      if (sa === sb) {
+        if (n(m.tbp1) > n(m.tbp2)) sa++;
+        else sb++;
+      }
+      const ga = n(m.s1p1) + n(m.s2p1),
+        gb = n(m.s1p2) + n(m.s2p2);
+      a.pj++;
+      b.pj++;
+      a.sg += sa;
+      a.sp += sb;
+      b.sg += sb;
+      b.sp += sa;
+      a.gg += ga;
+      a.gp += gb;
+      b.gg += gb;
+      b.gp += ga;
+      if (sa > sb) {
+        a.g++;
+        a.pts += 2;
+        b.per++;
+      } else {
+        b.g++;
+        b.pts += 2;
+        a.per++;
+      }
     });
   return pairIds
     .map((id) => ({ ...s[id], pair: byId[id] }))
-    .sort((a, b) => b.pts - a.pts || (b.sg - b.sp) - (a.sg - a.sp) || (b.gg - b.gp) - (a.gg - a.gp));
+    .sort(
+      (a, b) =>
+        b.pts - a.pts ||
+        (b.sg - b.sp) - (a.sg - a.sp) ||
+        (b.gg - b.gp) - (a.gg - a.gp)
+    );
 }
 
 function buildBracket(classified) {
@@ -186,15 +222,29 @@ function buildBracket(classified) {
   while (size < classified.length) size *= 2;
   const seeded = [...classified];
   while (seeded.length < size) seeded.push(null);
-  const rounds = [], r1 = [];
+  const rounds = [],
+    r1 = [];
   for (let i = 0; i < size; i += 2) {
-    const a = seeded[i], b = seeded[i + 1];
+    const a = seeded[i],
+      b = seeded[i + 1];
     r1.push({
-      id: uid(), round: 0, slot: r1.length, p1id: a?.pairId || null,
+      id: uid(),
+      round: 0,
+      slot: r1.length,
+      p1id: a?.pairId || null,
       p1label: a ? `1° ${a.grupo}` : "BYE",
-      p2id: b?.pairId || null, p2label: b ? `2° ${b.grupo}` : "BYE",
-      done: false, winner: (!b ? a?.pairId : !a ? b?.pairId : null), auto: !a || !b,
-      s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "", prevIds: [],
+      p2id: b?.pairId || null,
+      p2label: b ? `2° ${b.grupo}` : "BYE",
+      done: false,
+      winner: !b ? a?.pairId : !a ? b?.pairId : null,
+      auto: !a || !b,
+      s1p1: "",
+      s1p2: "",
+      s2p1: "",
+      s2p2: "",
+      tbp1: "",
+      tbp2: "",
+      prevIds: [],
     });
   }
   rounds.push(r1);
@@ -202,12 +252,25 @@ function buildBracket(classified) {
   while (prev.length > 1) {
     const next = [];
     for (let i = 0; i < prev.length; i += 2) {
-      const mA = prev[i], mB = prev[i + 1];
+      const mA = prev[i],
+        mB = prev[i + 1];
       next.push({
-        id: uid(), round: rounds.length, slot: next.length,
-        p1id: mA.auto ? mA.winner : null, p1label: `G ${mA.id.slice(0, 4)}`,
-        p2id: mB?.auto ? mB.winner : null, p2label: mB ? `G ${mB.id.slice(0, 4)}` : "BYE",
-        done: false, winner: null, auto: false, s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
+        id: uid(),
+        round: rounds.length,
+        slot: next.length,
+        p1id: mA.auto ? mA.winner : null,
+        p1label: `G ${mA.id.slice(0, 4)}`,
+        p2id: mB?.auto ? mB.winner : null,
+        p2label: mB ? `G ${mB.id.slice(0, 4)}` : "BYE",
+        done: false,
+        winner: null,
+        auto: false,
+        s1p1: "",
+        s1p2: "",
+        s2p1: "",
+        s2p2: "",
+        tbp1: "",
+        tbp2: "",
         prevIds: [mA.id, mB?.id],
       });
     }
@@ -220,20 +283,29 @@ function buildBracket(classified) {
 function calcPairStages(cat) {
   const stages = {};
   if (!cat.knockoutGenerated || !cat.knockoutRounds?.length) {
-    cat.parejas.forEach((p) => { stages[p.id] = "zona"; });
+    cat.parejas.forEach((p) => {
+      stages[p.id] = "zona";
+    });
     return stages;
   }
   const classified = new Set();
-  cat.knockoutRounds[0].forEach((m) => { if (m.p1id) classified.add(m.p1id); if (m.p2id) classified.add(m.p2id); });
-  cat.parejas.forEach((p) => { if (!classified.has(p.id)) stages[p.id] = "zona"; });
+  cat.knockoutRounds[0].forEach((m) => {
+    if (m.p1id) classified.add(m.p1id);
+    if (m.p2id) classified.add(m.p2id);
+  });
+  cat.parejas.forEach((p) => {
+    if (!classified.has(p.id)) stages[p.id] = "zona";
+  });
   const total = cat.knockoutRounds.length;
   cat.knockoutRounds.forEach((round, ri) => {
     round.forEach((m) => {
       if (!m.done || !m.winner) return;
       const loser = m.winner === m.p1id ? m.p2id : m.p1id;
       const rem = total - 1 - ri;
-      if (rem === 0) { stages[m.winner] = "campeon"; if (loser) stages[loser] = "finalista"; }
-      else if (rem === 1 && loser) stages[loser] = "semifinal";
+      if (rem === 0) {
+        stages[m.winner] = "campeon";
+        if (loser) stages[loser] = "finalista";
+      } else if (rem === 1 && loser) stages[loser] = "semifinal";
       else if (rem === 2 && loser) stages[loser] = "cuartos";
       else if (loser) stages[loser] = "octavos";
     });
@@ -241,6 +313,7 @@ function calcPairStages(cat) {
   return stages;
 }
 
+// ─── CSS ───
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -389,8 +462,7 @@ const CSS = `
     .restr-grid{grid-template-columns:1fr 1fr}
   }
 `;
-
-/* ─── Result Modal ─── */
+// ─── Result Modal ───
 function ResultModal({ match, cat, onSave, onClose }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   const [form, setForm] = useState({
@@ -491,7 +563,7 @@ function ResultModal({ match, cat, onSave, onClose }) {
   );
 }
 
-/* ─── Edit Pair Modal (con restricciones) ─── */
+// ─── Edit Pair Modal ───
 function EditPairModal({ pair, onSave, onClose }) {
   const [form, setForm] = useState({
     nombre: pair.nombre || "",
@@ -582,7 +654,7 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
-/* ─── Inscripcion ─── */
+// ─── Inscripcion ───
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
@@ -689,7 +761,7 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago }) {
   );
 }
 
-/* ─── Fixture ─── */
+// ─── Fixture ───
 function Fixture({ cat, onGenerate }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -775,7 +847,7 @@ function Fixture({ cat, onGenerate }) {
   );
 }
 
-/* ─── Resultados ─── */
+// ─── Resultados ───
 function Resultados({ cat, onOpen }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -826,7 +898,7 @@ function Resultados({ cat, onOpen }) {
   );
 }
 
-/* ─── Posiciones ─── */
+// ─── Posiciones ───
 function Posiciones({ cat }) {
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">📊</div><p>Generá el fixture para ver las posiciones</p></div>;
@@ -862,7 +934,7 @@ function Posiciones({ cat }) {
   );
 }
 
-/* ─── Llave Final con horario visible ─── */
+// ─── Llave Final ───
 const ROUND_NAMES = ["OCTAVOS", "CUARTOS", "SEMIS", "FINAL", "RONDA 5", "RONDA 6"];
 function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
@@ -969,7 +1041,7 @@ function LlaveFinal({ cat, onGenerate, onOpen, onAwardPoints, pointsAwarded }) {
   );
 }
 
-/* ─── Jugadores ─── */
+// ─── JugadoresView ───
 function JugadoresView({ jugadores }) {
   const [sel, setSel] = useState(null);
   const list = Object.values(jugadores).sort((a, b) => b.totalPts - a.totalPts);
@@ -1013,8 +1085,7 @@ function JugadoresView({ jugadores }) {
     </div>
   );
 }
-
-/* ─── APP ─── */
+// ─── APP ───
 const TABS = [
   { id: "inscripcion", label: "👥 Inscripción" },
   { id: "fixture", label: "📅 Fixture" },
@@ -1038,40 +1109,59 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Helper para operaciones Firestore
+  const { db, firestore } = window;
+  const { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, writeBatch } = firestore;
+
+  // Cargar torneos y jugadores al iniciar
   useEffect(() => {
-    (async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
-        const [torneosData, jugadoresData] = await Promise.all([
-          api("getAllTorneos"),
-          api("getAllJugadores"),
-        ]);
-        const safeTorneos = torneosData.map((t) => ({
-          ...t,
-          categorias: (t.categorias || []).map((c) => ({
-            ...c,
-            parejas: c.parejas || [],
-            grupos: c.grupos || [],
-            partidos: c.partidos || [],
-            knockoutRounds: [],
-            fixtureGenerado: c.fixtureGenerado === true || c.fixtureGenerado === "true",
-            knockoutGenerated: c.knockoutGenerated === true || c.knockoutGenerated === "true",
-            pointsAwarded: c.pointsAwarded === true || c.pointsAwarded === "true",
-          })),
+        // Cargar torneos
+        const torneosCol = collection(db, "torneos");
+        const torneosSnap = await getDocs(torneosCol);
+        const torneosData = torneosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Cargar categorías, parejas, partidos, etc. para cada torneo (opcional: cargar bajo demanda)
+        // Por simplicidad, cargamos los torneos con sus categorías desde subcolecciones
+        const torneosCompletos = await Promise.all(torneosData.map(async (t) => {
+          const catsCol = collection(db, "categorias");
+          const q = query(catsCol, where("torneoId", "==", t.id));
+          const catsSnap = await getDocs(q);
+          const categorias = await Promise.all(catsSnap.docs.map(async (docCat) => {
+            const cat = { id: docCat.id, ...docCat.data() };
+            // Cargar parejas
+            const pairsCol = collection(db, "parejas");
+            const qPairs = query(pairsCol, where("categoriaId", "==", cat.id));
+            const pairsSnap = await getDocs(qPairs);
+            cat.parejas = pairsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            // Cargar partidos
+            const matchesCol = collection(db, "partidos");
+            const qMatches = query(matchesCol, where("categoriaId", "==", cat.id));
+            const matchesSnap = await getDocs(qMatches);
+            cat.partidos = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            return cat;
+          }));
+          return { ...t, categorias };
         }));
-        setTorneos(safeTorneos);
+        setTorneos(torneosCompletos);
+        // Cargar jugadores
+        const jugCol = collection(db, "jugadores");
+        const jugSnap = await getDocs(jugCol);
         const jugs = {};
-        jugadoresData.forEach((j) => {
-          jugs[j.cedula] = { ...j, historial: j.historial || [] };
+        jugSnap.docs.forEach(doc => {
+          jugs[doc.id] = { cedula: doc.id, ...doc.data() };
         });
         setJugadores(jugs);
         setError(null);
       } catch (err) {
+        console.error(err);
         setError(err.message);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+    loadData();
   }, []);
 
   const activeTorneo = torneos.find((t) => t.id === activeTId);
@@ -1087,78 +1177,75 @@ export default function App() {
     );
   }
 
-  async function handleOpenTorneo(torneoId) {
-    setActiveTId(torneoId);
+  async function guardarCategoria(categoria) {
+    const catRef = doc(db, "categorias", categoria.id);
+    await setDoc(catRef, { ...categoria, torneoId: activeTId });
+  }
+
+  async function guardarPareja(pareja) {
+    const pairRef = doc(db, "parejas", pareja.id);
+    await setDoc(pairRef, { ...pareja, categoriaId: activeCId });
+  }
+
+  async function guardarPartido(partido) {
+    const matchRef = doc(db, "partidos", partido.id);
+    await setDoc(matchRef, { ...partido, categoriaId: activeCId });
+  }
+
+  async function guardarKnockout(rounds) {
+    const catRef = doc(db, "categorias", activeCId);
+    await updateDoc(catRef, { knockoutRounds: rounds });
+  }
+
+  async function crearTorneo() {
+    if (!tForm.nombre.trim()) return;
+    const newId = uid();
+    const nuevo = { id: newId, nombre: tForm.nombre.trim(), fecha: tForm.fecha, categorias: [] };
+    setTorneos(prev => [...prev, nuevo]);
+    setTForm({ nombre: "", fecha: "" });
+    setModal(null);
+    setActiveTId(newId);
     setActiveCId(null);
     setSubview("inscripcion");
     try {
-      const fullTorneo = await api("getTorneo", { torneoId });
-      fullTorneo.categorias = fullTorneo.categorias.map((c) => {
-        let knockoutRounds = [];
-        if (c.knockout?.roundsJSON) {
-          knockoutRounds =
-            typeof c.knockout.roundsJSON === "string"
-              ? JSON.parse(c.knockout.roundsJSON)
-              : c.knockout.roundsJSON;
-        }
-        return {
-          ...c,
-          parejas: c.parejas || [],
-          grupos: c.grupos || [],
-          partidos: (c.partidos || []).map(m => ({
-            ...m,
-            mins: (m.mins !== "" && m.mins !== null && m.mins !== undefined)
-              ? Number(m.mins) : null,
-            done: m.done === true || m.done === "true" || m.done === "TRUE",
-            conflict: m.conflict === true || m.conflict === "true" || m.conflict === "TRUE",
-            restrictionConflict: m.restrictionConflict === true || m.restrictionConflict === "true" || m.restrictionConflict === "TRUE",
-          })),
-          knockoutRounds,
-          fixtureGenerado: c.fixtureGenerado === true || c.fixtureGenerado === "true",
-          knockoutGenerated: c.knockoutGenerated === true || c.knockoutGenerated === "true",
-          pointsAwarded: c.pointsAwarded === true || c.pointsAwarded === "true",
-        };
-      });
-      setTorneos((prev) => prev.map((t) => (t.id === torneoId ? fullTorneo : t)));
-      setActiveCId(fullTorneo.categorias[0]?.id || null);
-    } catch (err) {
-      console.error("Error al cargar torneo completo:", err);
-    }
+      await setDoc(doc(db, "torneos", newId), { id: newId, nombre: nuevo.nombre, fecha: nuevo.fecha });
+    } catch (err) { console.error(err); }
   }
 
-  async function createTorneo() {
-    if (!tForm.nombre.trim()) return;
-    const t = { id: uid(), nombre: tForm.nombre.trim(), fecha: tForm.fecha, categorias: [] };
-    setTorneos((p) => [...p, t]);
-    setTForm({ nombre: "", fecha: "" });
-    setModal(null);
-    setActiveTId(t.id);
-    setActiveCId(null);
-    setSubview("inscripcion");
-    try { await apiPost("saveTorneo", { torneo: t }); } catch (err) { console.error(err); }
-  }
-
-  async function saveName() {
+  async function guardarNombreTorneo() {
     if (!editingNameVal.trim()) return;
-    setTorneos((p) => p.map((t) => (t.id === activeTId ? { ...t, nombre: editingNameVal.trim() } : t)));
+    const torneoRef = doc(db, "torneos", activeTId);
+    await updateDoc(torneoRef, { nombre: editingNameVal.trim() });
+    setTorneos(prev => prev.map(t => t.id === activeTId ? { ...t, nombre: editingNameVal.trim() } : t));
     setEditingName(false);
-    try { await apiPost("saveTorneo", { torneo: { id: activeTId, nombre: editingNameVal.trim() } }); } catch (err) { console.error(err); }
   }
 
-  async function createCat() {
+  async function crearCategoria() {
     if (!cForm.nombre.trim()) return;
-    const c = { id: uid(), nombre: cForm.nombre.trim(), parejas: [], grupos: [], partidos: [], fixtureGenerado: false, knockoutGenerated: false, knockoutRounds: [], pointsAwarded: false };
-    setTorneos((p) => p.map((t) => (t.id === activeTId ? { ...t, categorias: [...t.categorias, c] } : t)));
+    const newId = uid();
+    const nueva = {
+      id: newId,
+      nombre: cForm.nombre.trim(),
+      parejas: [],
+      grupos: [],
+      partidos: [],
+      fixtureGenerado: false,
+      knockoutGenerated: false,
+      knockoutRounds: [],
+      pointsAwarded: false,
+      torneoId: activeTId
+    };
+    setTorneos(prev => prev.map(t => t.id === activeTId ? { ...t, categorias: [...t.categorias, nueva] } : t));
     setCForm({ nombre: "" });
     setModal(null);
-    setActiveCId(c.id);
-    try { await apiPost("saveCategoria", { categoria: { ...c, torneoId: activeTId } }); } catch (err) { console.error(err); }
+    setActiveCId(newId);
+    await guardarCategoria(nueva);
   }
 
-  async function addPair(pair) {
+  async function agregarPareja(pair) {
     if (!activeCat.fixtureGenerado) {
       updateCat(activeCId, (c) => ({ ...c, parejas: [...c.parejas, pair] }));
-      try { await apiPost("savePar", { par: { ...pair, categoriaId: activeCId } }); } catch (err) { console.error(err); }
+      await guardarPareja(pair);
     } else {
       const c = activeCat;
       const sizes = c.grupos.map((g) => ({ g, cnt: c.parejas.filter((p) => p.grupoId === g.id).length }));
@@ -1174,24 +1261,22 @@ export default function App() {
         code: `Z${baseCode + i}`, done: false, winner: null,
         s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "",
       }));
-      const ownMatches = c.partidos.filter((m) => m.mins != null);
-      const otherMatches = getAllOtherMatches(c.id);
-      const sched = scheduleMatches(newRaw, [...ownMatches, ...otherMatches], buildRestrMap([...c.parejas, pw]));
+      const otherMatches = getAllOtherMatches(activeCId);
+      const sched = scheduleMatches(newRaw, [...c.partidos, ...otherMatches], buildRestrMap([...c.parejas, pw]));
       const newPartidos = [...c.partidos, ...sched];
       updateCat(activeCId, () => ({ ...c, grupos: newGrupos, parejas: [...c.parejas, pw], partidos: newPartidos }));
-      try {
-        await apiPost("savePar", { par: { ...pw, categoriaId: activeCId } });
-        await apiPost("saveGrupos", { categoriaId: activeCId, grupos: newGrupos });
-        await apiPost("savePartidos", { categoriaId: activeCId, partidos: newPartidos });
-      } catch (err) { console.error(err); }
+      await guardarPareja(pw);
+      await guardarCategoria({ ...c, grupos: newGrupos });
+      await Promise.all(newPartidos.map(p => guardarPartido(p)));
     }
   }
 
-  function deletePair(id) {
+  function eliminarPareja(id) {
     updateCat(activeCId, (c) => ({ ...c, parejas: c.parejas.filter((p) => p.id !== id) }));
+    // Opcional: eliminar de Firestore
   }
 
-  async function editPair(updated) {
+  async function editarPareja(updated) {
     updateCat(activeCId, (c) => ({ ...c, parejas: c.parejas.map((p) => (p.id === updated.id ? updated : p)) }));
     setJugadores((prev) => {
       const nxt = { ...prev };
@@ -1201,7 +1286,7 @@ export default function App() {
       return nxt;
     });
     setModal(null);
-    try { await apiPost("savePar", { par: { ...updated, categoriaId: activeCId } }); } catch (err) { console.error(err); }
+    await guardarPareja(updated);
   }
 
   async function togglePago(pairId, field) {
@@ -1212,11 +1297,7 @@ export default function App() {
       ...c,
       parejas: c.parejas.map((p) => (p.id === pairId ? updated : p)),
     }));
-    try {
-      await apiPost("savePar", { par: { ...updated, categoriaId: activeCId } });
-    } catch (err) {
-      console.error("Error al actualizar pago:", err);
-    }
+    await guardarPareja(updated);
   }
 
   function getAllOtherMatches(catId) {
@@ -1225,7 +1306,7 @@ export default function App() {
     return t.categorias.filter((c) => c.id !== catId).flatMap((c) => c.partidos.filter((m) => m.dia && m.hora && m.cancha && m.mins != null));
   }
 
-  async function generateFixture() {
+  async function generarFixture() {
     if (!activeCat || activeCat.parejas.length < 3) return;
     const numGroups = Math.ceil(activeCat.parejas.length / 3);
     const grupos = Array.from({ length: numGroups }, (_, i) => ({ id: uid(), nombre: `ZONA ${LETTERS[i]}` }));
@@ -1237,25 +1318,26 @@ export default function App() {
     });
     const otherMatches = getAllOtherMatches(activeCId);
     const sched = scheduleMatches(raw, otherMatches, buildRestrMap(assignedPairs));
-    updateCat(activeCId, (c) => ({ ...c, parejas: assignedPairs, grupos, partidos: sched, fixtureGenerado: true }));
-    try {
-      await apiPost("saveGrupos", { categoriaId: activeCId, grupos });
-      await apiPost("savePartidos", { categoriaId: activeCId, partidos: sched });
-      await apiPost("saveCategoria", { categoria: { id: activeCId, torneoId: activeTId, fixtureGenerado: true } });
-    } catch (err) { console.error(err); }
+    const updatedCat = { ...activeCat, parejas: assignedPairs, grupos, partidos: sched, fixtureGenerado: true };
+    updateCat(activeCId, () => updatedCat);
+    // Guardar en Firestore
+    await guardarCategoria({ ...updatedCat, id: activeCId });
+    await Promise.all(assignedPairs.map(p => guardarPareja(p)));
+    await Promise.all(sched.map(m => guardarPartido(m)));
   }
 
-  async function saveResult(matchId, result) {
+  async function guardarResultado(matchId, result) {
     updateCat(activeCId, (c) => {
       const m = c.partidos.find((p) => p.id === matchId); if (!m) return c;
       const winner = result.done ? calcMatchResult({ ...m, ...result }) : null;
       return { ...c, partidos: c.partidos.map((p) => (p.id === matchId ? { ...p, ...result, winner } : p)) };
     });
     setModal(null);
-    try { await apiPost("savePartido", { partido: { id: matchId, ...result } }); } catch (err) { console.error(err); }
+    const matchRef = doc(db, "partidos", matchId);
+    await updateDoc(matchRef, result);
   }
 
-  async function saveKnockoutResult(matchId, result) {
+  async function guardarResultadoKnockout(matchId, result) {
     const fm = activeCat.knockoutRounds.flat().find((m) => m.id === matchId);
     if (!fm) return;
     const winner = result.done ? calcMatchResult({ ...fm, ...result }) : null;
@@ -1271,16 +1353,10 @@ export default function App() {
     }
     updateCat(activeCId, (c) => ({ ...c, knockoutRounds: nr }));
     setModal(null);
-    try {
-      // Los partidos de llave NO están en la hoja PARTIDOS,
-      // solo guardamos el JSON completo del knockout
-      await apiPost("saveKnockout", { categoriaId: activeCId, roundsJSON: nr });
-    } catch (err) {
-      console.error("Error al guardar resultado de llave:", err);
-    }
+    await guardarKnockout(nr);
   }
 
-  async function generateKnockout() {
+  async function generarKnockout() {
     if (!activeCat) return;
     const classified = [];
     activeCat.grupos.forEach((g) => {
@@ -1293,18 +1369,15 @@ export default function App() {
       seconds = classified.filter((c) => c.pos === 2).reverse();
     const seeded = firsts.map((f, i) => [f, seconds[i] || null]).flat().filter(Boolean);
     const rawRounds = buildBracket(seeded);
-
     const t = torneos.find((t) => t.id === activeTId);
     const alreadyScheduled = t
       ? t.categorias.flatMap((c) =>
           c.partidos.filter((m) => m.dia && m.hora && m.cancha && m.mins != null)
         )
       : [];
-
     const allKoMatches = rawRounds.flat().filter((m) => !m.auto && m.p1id && m.p2id);
     const pairRestrictions = buildRestrMap(activeCat.parejas);
     const scheduledKo = scheduleMatches(allKoMatches, alreadyScheduled, pairRestrictions);
-
     const newRounds = rawRounds.map((round) =>
       round.map((m) => {
         if (m.auto) return m;
@@ -1312,29 +1385,18 @@ export default function App() {
         return found ? { ...m, ...found } : m;
       })
     );
-
     updateCat(activeCId, (c) => ({
       ...c,
       knockoutRounds: newRounds,
       knockoutGenerated: true,
     }));
-
-    try {
-      await apiPost("saveKnockout", { categoriaId: activeCId, roundsJSON: newRounds });
-      await apiPost("saveCategoria", {
-        categoria: { id: activeCId, torneoId: activeTId, knockoutGenerated: true },
-      });
-    } catch (err) {
-      alert("❌ Error al guardar la llave final: " + err.message);
-      console.error(err);
-    }
+    await guardarCategoria({ ...activeCat, knockoutRounds: newRounds, knockoutGenerated: true });
   }
 
-  async function awardPoints() {
+  async function otorgarPuntos() {
     if (!activeCat || !activeTorneo) return;
     const stages = calcPairStages(activeCat);
     let nuevosJugadores = [];
-    
     setJugadores((prev) => {
       const nxt = { ...prev };
       activeCat.parejas.forEach((pair) => {
@@ -1373,27 +1435,24 @@ export default function App() {
       nuevosJugadores = Object.values(nxt);
       return nxt;
     });
-
     updateCat(activeCId, (c) => ({ ...c, pointsAwarded: true }));
-
-    try {
-      if (nuevosJugadores.length > 0) {
-        const resJug = await apiPost("saveJugadores", { jugadores: nuevosJugadores });
-        if (!resJug.success) throw new Error("No se guardaron los jugadores");
-      }
-      await apiPost("saveCategoria", {
-        categoria: { id: activeCId, torneoId: activeTId, pointsAwarded: true },
-      });
-      alert("✅ Puntos guardados correctamente");
-    } catch (err) {
-      alert("❌ Error al guardar los puntos: " + err.message);
-      console.error(err);
-    }
+    const batch = writeBatch(db);
+    nuevosJugadores.forEach(j => {
+      const ref = doc(db, "jugadores", j.cedula);
+      batch.set(ref, j);
+    });
+    const catRef = doc(db, "categorias", activeCId);
+    batch.update(catRef, { pointsAwarded: true });
+    await batch.commit();
+    alert("✅ Puntos guardados correctamente");
   }
 
-  async function handleDeleteTorneo(torneoId) {
+  async function eliminarTorneo(torneoId) {
     setTorneos((p) => p.filter((x) => x.id !== torneoId));
-    try { await apiPost("deleteTorneo", { torneoId }); } catch (err) { console.error(err); }
+    try {
+      await deleteDoc(doc(db, "torneos", torneoId));
+      // Opcional: eliminar subcolecciones
+    } catch (err) { console.error(err); }
   }
 
   if (loading) {
@@ -1456,14 +1515,14 @@ export default function App() {
                 ) : (
                   <div className="grid2">
                     {torneos.map((t) => (
-                      <button key={t.id} className="t-card" onClick={() => handleOpenTorneo(t.id)}>
+                      <button key={t.id} className="t-card" onClick={() => { setActiveTId(t.id); setActiveCId(null); setSubview("inscripcion"); }}>
                         <div className="t-card-name">{t.nombre}</div>
                         <div className="t-card-meta">{t.fecha || "Sin fecha"} · {t.categorias.length} categoría{t.categorias.length !== 1 ? "s" : ""}</div>
                         <div className="row wrap g8">
                           {t.categorias.map((c) => <span key={c.id} className="badge bb">{c.nombre}</span>)}
                           {!t.categorias.length && <span className="badge bx">Sin categorías</span>}
                         </div>
-                        <div className="t-card-del" onClick={(e) => { e.stopPropagation(); if (window.confirm("¿Eliminar este torneo?")) handleDeleteTorneo(t.id); }}>
+                        <div className="t-card-del" onClick={(e) => { e.stopPropagation(); if (window.confirm("¿Eliminar este torneo?")) eliminarTorneo(t.id); }}>
                           <button className="btn btn-danger btn-xs">Eliminar</button>
                         </div>
                       </button>
@@ -1477,9 +1536,9 @@ export default function App() {
             <div className="overlay" onClick={() => setModal(null)}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-title">Nuevo Torneo</div>
-                <div className="col mb12"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Torneo Apertura 2026" value={tForm.nombre} onChange={(e) => setTForm((p) => ({ ...p, nombre: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && createTorneo()} /></div>
+                <div className="col mb12"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Torneo Apertura 2026" value={tForm.nombre} onChange={(e) => setTForm((p) => ({ ...p, nombre: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && crearTorneo()} /></div>
                 <div className="col mb16"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={(e) => setTForm((p) => ({ ...p, fecha: e.target.value }))} /></div>
-                <div className="row g8"><button className="btn btn-primary f1" onClick={createTorneo}>Crear</button><button className="btn btn-ghost" onClick={() => setModal(null)}>Cancelar</button></div>
+                <div className="row g8"><button className="btn btn-primary f1" onClick={crearTorneo}>Crear</button><button className="btn btn-ghost" onClick={() => setModal(null)}>Cancelar</button></div>
               </div>
             </div>
           )}
@@ -1497,8 +1556,8 @@ export default function App() {
           <div className="hdr-name-wrap">
             {editingName ? (
               <>
-                <input className="edit-inline" autoFocus value={editingNameVal} onChange={(e) => setEditingNameVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }} />
-                <button className="icon-btn" onClick={saveName}>✓</button>
+                <input className="edit-inline" autoFocus value={editingNameVal} onChange={(e) => setEditingNameVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") guardarNombreTorneo(); if (e.key === "Escape") setEditingName(false); }} />
+                <button className="icon-btn" onClick={guardarNombreTorneo}>✓</button>
                 <button className="icon-btn" onClick={() => setEditingName(false)}>✕</button>
               </>
             ) : (
@@ -1519,11 +1578,11 @@ export default function App() {
           </div>
           {!activeCat ? <div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoría</p></div> : (
             <>
-              {subview === "inscripcion" && <Inscripcion cat={activeCat} onAdd={addPair} onDelete={deletePair} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} />}
-              {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generateFixture} />}
+              {subview === "inscripcion" && <Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} />}
+              {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} />}
               {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => setModal({ type: "res", match: m })} />}
               {subview === "posiciones" && <Posiciones cat={activeCat} />}
-              {subview === "llave" && <LlaveFinal cat={activeCat} onGenerate={generateKnockout} onOpen={(m) => setModal({ type: "koRes", match: m })} onAwardPoints={awardPoints} pointsAwarded={activeCat.pointsAwarded} />}
+              {subview === "llave" && <LlaveFinal cat={activeCat} onGenerate={generarKnockout} onOpen={(m) => setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} />}
             </>
           )}
         </div>
@@ -1531,14 +1590,14 @@ export default function App() {
           <div className="overlay" onClick={() => setModal(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-title">Nueva Categoría</div>
-              <div className="col mb16"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Primera, Damas, Mixtos..." value={cForm.nombre} onChange={(e) => setCForm({ nombre: e.target.value })} onKeyDown={(e) => e.key === "Enter" && createCat()} /></div>
-              <div className="row g8"><button className="btn btn-primary f1" onClick={createCat}>Crear</button><button className="btn btn-ghost" onClick={() => setModal(null)}>Cancelar</button></div>
+              <div className="col mb16"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Primera, Damas, Mixtos..." value={cForm.nombre} onChange={(e) => setCForm({ nombre: e.target.value })} onKeyDown={(e) => e.key === "Enter" && crearCategoria()} /></div>
+              <div className="row g8"><button className="btn btn-primary f1" onClick={crearCategoria}>Crear</button><button className="btn btn-ghost" onClick={() => setModal(null)}>Cancelar</button></div>
             </div>
           </div>
         )}
-        {modal?.type === "editPair" && <EditPairModal pair={modal.pair} onSave={editPair} onClose={() => setModal(null)} />}
-        {modal?.type === "res" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={saveResult} onClose={() => setModal(null)} />}
-        {modal?.type === "koRes" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={saveKnockoutResult} onClose={() => setModal(null)} />}
+        {modal?.type === "editPair" && <EditPairModal pair={modal.pair} onSave={editarPareja} onClose={() => setModal(null)} />}
+        {modal?.type === "res" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={() => setModal(null)} />}
+        {modal?.type === "koRes" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={() => setModal(null)} />}
       </div>
     </>
   );
