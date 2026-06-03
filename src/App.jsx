@@ -728,7 +728,7 @@ function ResultModal({ match, cat, onSave, onClose }) {
   );
 }
 
-// ─── Edit Pair Modal (MODIFICADO: slots en vez de bloques) ───
+// ─── Edit Pair Modal ───
 function EditPairModal({ pair, onSave, onClose }) {
   const [form, setForm] = useState({
     nombre: pair.nombre || "",
@@ -845,7 +845,119 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
-// ─── Inscripción (MODIFICADA: recibe isAdmin) ───
+// ─── Edit Match Modal (con FIX 2 y FIX 3) ───
+function EditMatchModal({ match, cat, allPartidos, onSave, onClose }) {
+  const days = [...new Set(SLOT_DEFS.map(s => s.dia))];
+  // FIX 3: si match.dia es "?", usar primer día válido
+  const [selectedDay, setSelectedDay] = useState(match.dia && match.dia !== "?" ? match.dia : (days[0] || ""));
+  const [selectedHour, setSelectedHour] = useState(match.hora && match.hora !== "?" ? match.hora : "");
+  const [selectedCourt, setSelectedCourt] = useState(match.cancha || COURTS[0]);
+  const [conflicts, setConflicts] = useState([]);
+
+  const hoursForDay = SLOT_DEFS.filter(s => s.dia === selectedDay).map(s => s.hora);
+  // Auto-corregir hora vacía después de cambiar día
+  useEffect(() => {
+    if (!selectedHour && hoursForDay.length) setSelectedHour(hoursForDay[0]);
+  }, [selectedDay, hoursForDay, selectedHour]);
+
+  const getMinutesForSlot = (dia, hora) => {
+    const slot = SLOT_DEFS.find(s => s.dia === dia && s.hora === hora);
+    return slot ? slot.mins : 0;
+  };
+
+  const checkConflicts = () => {
+    const newConflicts = [];
+    const currentMins = getMinutesForSlot(selectedDay, selectedHour);
+    // Conflicto de slot ocupado
+    const sameSlot = allPartidos.find(p => p.id !== match.id && p.dia === selectedDay && p.hora === selectedHour && p.cancha === selectedCourt);
+    if (sameSlot) {
+      newConflicts.push({ type: 'slot', match: sameSlot });
+    }
+    // FIX 2: usar filter para evaluar TODOS los partidos del jugador
+    const jugadores = [match.p1id, match.p2id].filter(Boolean);
+    jugadores.forEach(jugadorId => {
+      const partidosJugador = allPartidos.filter(p => p.id !== match.id && (p.p1id === jugadorId || p.p2id === jugadorId));
+      partidosJugador.forEach(otroPartido => {
+        const otroMins = getMinutesForSlot(otroPartido.dia, otroPartido.hora);
+        if (Math.abs(currentMins - otroMins) < MIN_GAP) {
+          newConflicts.push({ type: 'rest', match: otroPartido, jugador: jugadorId });
+        }
+      });
+    });
+    setConflicts(newConflicts);
+    return newConflicts;
+  };
+
+  useEffect(() => {
+    checkConflicts();
+  }, [selectedDay, selectedHour, selectedCourt]);
+
+  const handleSave = () => {
+    const hasConflicts = conflicts.length > 0;
+    onSave(match.id, {
+      dia: selectedDay,
+      hora: selectedHour,
+      cancha: selectedCourt,
+      conflict: hasConflicts,
+      mins: getMinutesForSlot(selectedDay, selectedHour)
+    });
+  };
+
+  const renderConflicts = () => {
+    if (conflicts.length === 0) {
+      return <div className="badge bg" style={{ marginBottom: 16 }}>✓ Sin conflictos</div>;
+    }
+    return (
+      <div className="alert alert-warn" style={{ marginBottom: 16 }}>
+        {conflicts.map((c, idx) => (
+          <div key={idx}>
+            {c.type === 'slot' ? `⚠️ Conflicto de horario: el partido ${c.match.code} ya ocupa ese slot.` : 
+              `⚠️ Conflicto de descanso: uno de los jugadores juega otro partido (${c.match.code}) muy cerca.`}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">Editar Partido</div>
+        <div className="match-info">
+          <div className="match-teams">
+            {cat.parejas.find(p => p.id === match.p1id)?.nombre || "?"} vs {cat.parejas.find(p => p.id === match.p2id)?.nombre || "?"}
+          </div>
+          <div className="match-meta">{match.code}</div>
+        </div>
+        <div className="col mb12">
+          <label className="lbl">Día</label>
+          <select className="inp" value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)}>
+            {days.map(d => <option key={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="col mb12">
+          <label className="lbl">Hora</label>
+          <select className="inp" value={selectedHour} onChange={(e) => setSelectedHour(e.target.value)}>
+            {hoursForDay.map(h => <option key={h}>{h}</option>)}
+          </select>
+        </div>
+        <div className="col mb12">
+          <label className="lbl">Cancha</label>
+          <select className="inp" value={selectedCourt} onChange={(e) => setSelectedCourt(e.target.value)}>
+            {COURTS.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        {renderConflicts()}
+        <div className="row g8">
+          <button className="btn btn-primary f1" onClick={handleSave}>Guardar de todos modos</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Inscripción ───
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }) {
   if (!cat || !cat.parejas || !cat.grupos) {
     return <div className="empty">Cargando datos de la categoría...</div>;
@@ -965,8 +1077,8 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }
   );
 }
 
-// ─── Fixture (MODIFICADO: recibe isAdmin) ───
-function Fixture({ cat, onGenerate, isAdmin }) {
+// ─── Fixture (con botón editar) ───
+function Fixture({ cat, onGenerate, isAdmin, onEditMatch }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
     return (
@@ -1053,7 +1165,10 @@ function Fixture({ cat, onGenerate, isAdmin }) {
                       <div className="slot-match">{byId[m.p1id]?.nombre || "?"} vs {byId[m.p2id]?.nombre || "?"}</div>
                     </div>
                     <div className="col" style={{ alignItems: "flex-end", gap: 4 }}>
-                      <span className="slot-code">{m.code}</span>
+                      <div className="row g8">
+                        <span className="slot-code">{m.code}</span>
+                        {isAdmin && <button className="btn btn-ghost btn-xs" onClick={() => onEditMatch(m)}>⚙️</button>}
+                      </div>
                       {m.done && <span style={{ fontSize: 9, color: "var(--accent)" }}>✓</span>}
                       {m.conflict && !m.restrictionConflict && <span className="ctag">⚠️ Descanso</span>}
                       {m.restrictionConflict && <span className="ctag ctag-r">🚫 Restricción</span>}
@@ -1069,8 +1184,8 @@ function Fixture({ cat, onGenerate, isAdmin }) {
   );
 }
 // ===== PARTE 3 =====
-// ─── Resultados (MODIFICADO: recibe isAdmin) ───
-function Resultados({ cat, onOpen, isAdmin }) {
+// ─── Resultados (con botón editar) ───
+function Resultados({ cat, onOpen, isAdmin, onEditMatch }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">⚡</div><p>Generá el fixture primero</p></div>;
@@ -1094,7 +1209,17 @@ function Resultados({ cat, onOpen, isAdmin }) {
           <div key={g.id} className="card">
             <div className="card-title">{g.nombre}</div>
             <table className="tbl">
-              <thead><tr><th>Cód</th><th>Pareja 1</th><th>Resultado</th><th>Pareja 2</th><th>Horario</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Cód</th>
+                  <th>Pareja 1</th>
+                  <th>Resultado</th>
+                  <th>Pareja 2</th>
+                  <th>Horario</th>
+                  {isAdmin && <th></th>}
+                  <th></th>
+                </tr>
+              </thead>
               <tbody>
                 {gm.map((m) => {
                   const p1 = m.p1id ? byId[m.p1id] : null;
@@ -1122,6 +1247,11 @@ function Resultados({ cat, onOpen, isAdmin }) {
                         {pendienteDef ? "Por definir" : (p2?.nombre || "?")}
                       </td>
                       <td style={{ fontSize: 11, color: "var(--muted)" }}>{m.dia} {m.hora} · {m.cancha}</td>
+                      {isAdmin && (
+                        <td>
+                          <button className="btn btn-ghost btn-xs" onClick={() => onEditMatch(m)}>⚙️</button>
+                        </td>
+                      )}
                       <td>
                         <button
                           className="btn btn-secondary btn-sm"
@@ -1144,7 +1274,7 @@ function Resultados({ cat, onOpen, isAdmin }) {
   );
 }
 
-// ─── Posiciones (sin cambios funcionales; no requiere isAdmin pues no tiene botones) ───
+// ─── Posiciones ───
 function Posiciones({ cat }) {
   if (!cat.fixtureGenerado)
     return <div className="empty"><div className="empty-ico">📊</div><p>Generá el fixture para ver las posiciones</p></div>;
@@ -1240,9 +1370,9 @@ function Posiciones({ cat }) {
   );
 }
 
-// ─── Llave Final (MODIFICADA: recibe isAdmin, onClick solo admin) ───
+// ─── Llave Final (con botón editar) ───
 const ROUND_NAMES = ["OCTAVOS", "CUARTOS", "SEMIS", "FINAL", "RONDA 5", "RONDA 6"];
-function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, pointsAwarded, isAdmin }) {
+function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   const knockoutRoundsWithSchedules = React.useMemo(() => {
     if (!cat.knockoutRounds) return [];
@@ -1316,6 +1446,7 @@ function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, points
                         {m.dia && m.hora && m.cancha && (
                           <div className="br-schedule">
                             {m.dia} {m.hora} · {m.cancha}
+                            {isAdmin && <button className="btn btn-ghost btn-xs" style={{ marginLeft: 8 }} onClick={(e) => { e.stopPropagation(); onEditMatch(m); }}>⚙️</button>}
                           </div>
                         )}
                       </div>
@@ -1353,7 +1484,7 @@ function LlaveFinal({ cat, allMatches, onGenerate, onOpen, onAwardPoints, points
   );
 }
 
-// ─── JugadoresView (MODIFICADO: recibe isAdmin, eliminar solo si admin) ───
+// ─── JugadoresView ───
 function JugadoresView({ jugadores, onDeleteJugador, isAdmin }) {
   const [sel, setSel] = useState(null);
   const list = Object.values(jugadores).sort((a, b) => b.totalPts - a.totalPts);
@@ -1522,10 +1653,8 @@ export default function App() {
 
   async function guardarPareja(pareja) {
     const pairRef = doc(db, "parejas", pareja.id);
-    // FIX 1: eliminar campos undefined (restricciones ya no se envía)
     const toSave = { ...pareja, categoriaId: activeCId };
     delete toSave.restricciones;
-    // Asegurarse de no enviar undefined en j1, j2
     if (toSave.j1 === undefined) delete toSave.j1;
     if (toSave.j2 === undefined) delete toSave.j2;
     await setDoc(pairRef, toSave);
@@ -1539,6 +1668,37 @@ export default function App() {
   async function guardarKnockout(rounds) {
     const catRef = doc(db, "categorias", activeCId);
     await updateDoc(catRef, { knockoutRounds: rounds });
+  }
+
+  async function editarPartido(matchId, changes) {
+    if (!activeCat) return;
+    const catRef = doc(db, "categorias", activeCId);
+    let updated = false;
+    const partidoIndex = activeCat.partidos.findIndex(p => p.id === matchId);
+    if (partidoIndex !== -1) {
+      const newPartidos = [...activeCat.partidos];
+      newPartidos[partidoIndex] = { ...newPartidos[partidoIndex], ...changes };
+      updateCat(activeCId, c => ({ ...c, partidos: newPartidos }));
+      await guardarPartido(newPartidos[partidoIndex]);
+      updated = true;
+    } else {
+      let newKnockout = activeCat.knockoutRounds ? [...activeCat.knockoutRounds] : [];
+      let found = false;
+      for (let i = 0; i < newKnockout.length; i++) {
+        const matchIndex = newKnockout[i].findIndex(m => m.id === matchId);
+        if (matchIndex !== -1) {
+          newKnockout[i][matchIndex] = { ...newKnockout[i][matchIndex], ...changes };
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        updateCat(activeCId, c => ({ ...c, knockoutRounds: newKnockout }));
+        await guardarKnockout(newKnockout);
+        updated = true;
+      }
+    }
+    if (!updated) console.warn("Partido no encontrado:", matchId);
   }
 
   async function crearTorneo() {
@@ -1659,7 +1819,7 @@ export default function App() {
     if (!activeCat || activeCat.parejas.length < 3) return;
     const pairs = activeCat.parejas;
     const dist = calcZoneDistribution(pairs.length);
-    const totalZonas = dist.zonasDe3 + dist.zonasDe4;
+    // FIX 1: línea eliminada: const totalZonas = dist.zonasDe3 + dist.zonasDe4;
     const grupos = [];
     let letterIdx = 0;
     for (let i = 0; i < dist.zonasDe3; i++) {
@@ -1769,7 +1929,6 @@ export default function App() {
   }
 
   async function guardarResultado(matchId, result) {
-    // FIX 2: calcular cambios de C y D antes de updateCat, usando activeCat
     const cat = torneos.find(t => t.id === activeTId)?.categorias?.find(c => c.id === activeCId);
     if (!cat) return;
 
@@ -1779,7 +1938,6 @@ export default function App() {
     let updatedC = null;
     let updatedD = null;
 
-    // Calcular los cambios de los partidos dependientes si es A o B
     if (m.zona4 && (m.zona4Tipo === "A" || m.zona4Tipo === "B") && result.done) {
       const updatedMatch = { ...m, ...result, winner: calcMatchResult({ ...m, ...result }) };
       const winnerId = updatedMatch.winner;
@@ -1789,23 +1947,14 @@ export default function App() {
       const matchD = cat.partidos.find(p => p.zona4 && p.zona4GrupoId === m.zona4GrupoId && p.zona4Tipo === "D");
 
       if (m.zona4Tipo === "A") {
-        if (matchC) {
-          updatedC = { ...matchC, p1id: winnerId };
-        }
-        if (matchD) {
-          updatedD = { ...matchD, p1id: loserId };
-        }
+        if (matchC) updatedC = { ...matchC, p1id: winnerId };
+        if (matchD) updatedD = { ...matchD, p1id: loserId };
       } else if (m.zona4Tipo === "B") {
-        if (matchC) {
-          updatedC = { ...matchC, p2id: winnerId };
-        }
-        if (matchD) {
-          updatedD = { ...matchD, p2id: loserId };
-        }
+        if (matchC) updatedC = { ...matchC, p2id: winnerId };
+        if (matchD) updatedD = { ...matchD, p2id: loserId };
       }
     }
 
-    // Ahora sí actualizar estado con updateCat
     updateCat(activeCId, (c) => {
       let newPartidos = c.partidos.map((p) => {
         if (p.id === matchId) {
@@ -1814,31 +1963,15 @@ export default function App() {
         }
         return p;
       });
-
-      if (updatedC) {
-        newPartidos = newPartidos.map(p => p.id === updatedC.id ? updatedC : p);
-      }
-      if (updatedD) {
-        newPartidos = newPartidos.map(p => p.id === updatedD.id ? updatedD : p);
-      }
-
+      if (updatedC) newPartidos = newPartidos.map(p => p.id === updatedC.id ? updatedC : p);
+      if (updatedD) newPartidos = newPartidos.map(p => p.id === updatedD.id ? updatedD : p);
       return { ...c, partidos: newPartidos };
     });
-
     setModal(null);
-
-    // Persistir en Firestore
     const matchRef = doc(db, "partidos", matchId);
     await updateDoc(matchRef, result);
-
-    if (updatedC) {
-      const { id, ...dataC } = updatedC;
-      await updateDoc(doc(db, "partidos", id), dataC);
-    }
-    if (updatedD) {
-      const { id, ...dataD } = updatedD;
-      await updateDoc(doc(db, "partidos", id), dataD);
-    }
+    if (updatedC) await updateDoc(doc(db, "partidos", updatedC.id), updatedC);
+    if (updatedD) await updateDoc(doc(db, "partidos", updatedD.id), updatedD);
   }
 
   async function guardarResultadoKnockout(matchId, result) {
@@ -2115,10 +2248,10 @@ export default function App() {
           {!activeCat ? <div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoría</p></div> : (
             <>
               {subview === "inscripcion" && <Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} isAdmin={isAdmin} />}
-              {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} />}
-              {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => isAdmin && setModal({ type: "res", match: m })} isAdmin={isAdmin} />}
+              {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={(m) => isAdmin && setModal({ type: "editMatch", match: m })} />}
+              {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => isAdmin && setModal({ type: "res", match: m })} isAdmin={isAdmin} onEditMatch={(m) => isAdmin && setModal({ type: "editMatch", match: m })} />}
               {subview === "posiciones" && <Posiciones cat={activeCat} />}
-              {subview === "llave" && <LlaveFinal cat={activeCat} allMatches={allMatches} onGenerate={generarKnockout} onOpen={(m) => isAdmin && setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} />}
+              {subview === "llave" && <LlaveFinal cat={activeCat} allMatches={allMatches} onGenerate={generarKnockout} onOpen={(m) => isAdmin && setModal({ type: "koRes", match: m })} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={(m) => isAdmin && setModal({ type: "editMatch", match: m })} />}
             </>
           )}
         </div>
@@ -2134,6 +2267,15 @@ export default function App() {
         {modal?.type === "editPair" && <EditPairModal pair={modal.pair} onSave={editarPareja} onClose={() => setModal(null)} />}
         {modal?.type === "res" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={() => setModal(null)} />}
         {modal?.type === "koRes" && activeCat && <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={() => setModal(null)} />}
+        {modal?.type === "editMatch" && activeCat && (
+          <EditMatchModal
+            match={modal.match}
+            cat={activeCat}
+            allPartidos={[...activeCat.partidos, ...(activeCat.knockoutRounds?.flat() || [])]}
+            onSave={editarPartido}
+            onClose={() => setModal(null)}
+          />
+        )}
         {showPinModal && <PinModal onSuccess={() => { setShowPinModal(false); setIsAdmin(true); }} onClose={() => setShowPinModal(false)} />}
       </div>
     </>
