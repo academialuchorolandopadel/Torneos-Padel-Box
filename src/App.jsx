@@ -24,6 +24,8 @@ const SLOT_DEFS = [
   { dia: "SÁBADO", hora: "17:00", mins: 3900, bloque: "sab_noche" },
   { dia: "SÁBADO", hora: "18:15", mins: 3975, bloque: "sab_noche" },
   { dia: "SÁBADO", hora: "19:30", mins: 4050, bloque: "sab_noche" },
+  { dia: "SÁBADO", hora: "20:45", mins: 4125, bloque: "sab_noche" },
+  { dia: "SÁBADO", hora: "22:00", mins: 4200, bloque: "sab_noche" },
   { dia: "DOMINGO", hora: "9:00", mins: 4860, bloque: "dom_man" },
   { dia: "DOMINGO", hora: "10:15", mins: 4935, bloque: "dom_man" },
   { dia: "DOMINGO", hora: "11:30", mins: 5010, bloque: "dom_man" },
@@ -627,6 +629,41 @@ function PinModal({ onSuccess, onClose }) {
   );
 }
 
+// ─── Player Login Modal ───
+function PlayerLoginModal({ error, onClearError, onSubmit, onClose }) {
+  const [cedula, setCedula] = useState("");
+
+  const handleSubmit = () => {
+    onClearError();
+    onSubmit(cedula.trim());
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">Acceso Jugador</div>
+        <div className="col mb12">
+          <label className="lbl">Ingresá tu cédula</label>
+          <input
+            className="inp"
+            type="text"
+            inputMode="numeric"
+            value={cedula}
+            onChange={(e) => { setCedula(e.target.value); onClearError(); }}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            autoFocus
+          />
+        </div>
+        {error && <div style={{ color: "var(--danger)", fontSize: 12, marginBottom: 12 }}>{error}</div>}
+        <div className="row g8">
+          <button className="btn btn-primary f1" onClick={handleSubmit}>Entrar</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Result Modal ───
 function ResultModal({ match, cat, onSave, onClose }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
@@ -845,17 +882,15 @@ function EditPairModal({ pair, onSave, onClose }) {
   );
 }
 
-// ─── Edit Match Modal (con FIX 2 y FIX 3) ───
+// ─── Edit Match Modal ───
 function EditMatchModal({ match, cat, allPartidos, onSave, onClose }) {
   const days = [...new Set(SLOT_DEFS.map(s => s.dia))];
-  // FIX 3: si match.dia es "?", usar primer día válido
   const [selectedDay, setSelectedDay] = useState(match.dia && match.dia !== "?" ? match.dia : (days[0] || ""));
   const [selectedHour, setSelectedHour] = useState(match.hora && match.hora !== "?" ? match.hora : "");
   const [selectedCourt, setSelectedCourt] = useState(match.cancha || COURTS[0]);
   const [conflicts, setConflicts] = useState([]);
 
   const hoursForDay = SLOT_DEFS.filter(s => s.dia === selectedDay).map(s => s.hora);
-  // Auto-corregir hora vacía después de cambiar día
   useEffect(() => {
     if (!selectedHour && hoursForDay.length) setSelectedHour(hoursForDay[0]);
   }, [selectedDay, hoursForDay, selectedHour]);
@@ -868,12 +903,10 @@ function EditMatchModal({ match, cat, allPartidos, onSave, onClose }) {
   const checkConflicts = () => {
     const newConflicts = [];
     const currentMins = getMinutesForSlot(selectedDay, selectedHour);
-    // Conflicto de slot ocupado
     const sameSlot = allPartidos.find(p => p.id !== match.id && p.dia === selectedDay && p.hora === selectedHour && p.cancha === selectedCourt);
     if (sameSlot) {
       newConflicts.push({ type: 'slot', match: sameSlot });
     }
-    // FIX 2: usar filter para evaluar TODOS los partidos del jugador
     const jugadores = [match.p1id, match.p2id].filter(Boolean);
     jugadores.forEach(jugadorId => {
       const partidosJugador = allPartidos.filter(p => p.id !== match.id && (p.p1id === jugadorId || p.p2id === jugadorId));
@@ -1077,7 +1110,7 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }
   );
 }
 
-// ─── Fixture (con botón editar) ───
+// ─── Fixture ───
 function Fixture({ cat, onGenerate, isAdmin, onEditMatch }) {
   const byId = Object.fromEntries(cat.parejas.map((p) => [p.id, p]));
   if (!cat.fixtureGenerado)
@@ -1183,6 +1216,7 @@ function Fixture({ cat, onGenerate, isAdmin, onEditMatch }) {
     </div>
   );
 }
+// ===== PARTE 3 =====
 // ===== PARTE 3 =====
 // ─── Resultados (con botón editar) ───
 function Resultados({ cat, onOpen, isAdmin, onEditMatch }) {
@@ -1567,14 +1601,24 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isPlayer, setIsPlayer] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
+  const [showPlayerLogin, setShowPlayerLogin] = useState(false);
+  const [playerLoginError, setPlayerLoginError] = useState("");
 
   const { db, firestore } = window;
   const { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, writeBatch } = firestore;
 
   useEffect(() => {
     const adminSession = sessionStorage.getItem("padelbox_admin");
-    if (adminSession === "true") setIsAdmin(true);
+    if (adminSession === "true") {
+      setIsAdmin(true);
+      return;
+    }
+    const playerSession = sessionStorage.getItem("padelbox_player");
+    if (playerSession === "true") {
+      setIsPlayer(true);
+    }
   }, []);
 
   const migratePairRestrictions = (p) => {
@@ -1635,6 +1679,41 @@ export default function App() {
   const activeTorneo = torneos.find((t) => t.id === activeTId);
   const activeCat = activeTorneo?.categorias?.find((c) => c.id === activeCId);
   const allMatches = activeTorneo?.categorias?.flatMap(c => c.partidos) || [];
+
+  const getAllCedulas = () => {
+    const cedulas = new Set();
+    torneos.forEach(t => {
+      t.categorias?.forEach(c => {
+        c.parejas?.forEach(p => {
+          if (p.j1cedula) cedulas.add(p.j1cedula);
+          if (p.j2cedula) cedulas.add(p.j2cedula);
+        });
+      });
+    });
+    return cedulas;
+  };
+
+  const handlePlayerLogin = (cedula) => {
+    const cedulasValidas = getAllCedulas();
+    if (cedulasValidas.has(cedula)) {
+      sessionStorage.setItem("padelbox_player", "true");
+      setIsPlayer(true);
+      setShowPlayerLogin(false);
+      setPlayerLoginError("");
+    } else {
+      setPlayerLoginError("Cédula no encontrada en el torneo");
+    }
+  };
+
+  const handleLogoutAdmin = () => {
+    sessionStorage.removeItem("padelbox_admin");
+    setIsAdmin(false);
+  };
+
+  const handleLogoutPlayer = () => {
+    sessionStorage.removeItem("padelbox_player");
+    setIsPlayer(false);
+  };
 
   function updateCat(catId, fn) {
     setTorneos((prev) =>
@@ -1819,7 +1898,6 @@ export default function App() {
     if (!activeCat || activeCat.parejas.length < 3) return;
     const pairs = activeCat.parejas;
     const dist = calcZoneDistribution(pairs.length);
-    // FIX 1: línea eliminada: const totalZonas = dist.zonasDe3 + dist.zonasDe4;
     const grupos = [];
     let letterIdx = 0;
     for (let i = 0; i < dist.zonasDe3; i++) {
@@ -2106,11 +2184,6 @@ export default function App() {
     } catch (err) { console.error(err); }
   }
 
-  const handleLogoutAdmin = () => {
-    sessionStorage.removeItem("padelbox_admin");
-    setIsAdmin(false);
-  };
-
   if (loading) {
     return (
       <>
@@ -2143,6 +2216,43 @@ export default function App() {
     );
   }
 
+  /* PANTALLA DE LOGIN */
+  if (!isAdmin && !isPlayer) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <div className="app">
+          <header className="hdr">
+            <div className="logo">PADEL<em>BOX</em></div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPlayerLogin(true)}>👤 Jugador</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPinModal(true)}>🔑 Admin</button>
+            </div>
+          </header>
+          <div className="main" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ textAlign: "center" }}>
+              <div className="hero-title" style={{ marginBottom: 16 }}>PADEL<em style={{ fontStyle: "normal", color: "var(--accent)" }}>BOX</em></div>
+              <p style={{ color: "var(--muted)", marginBottom: 24 }}>Seleccioná tu forma de acceso</p>
+              <div className="row g12" style={{ justifyContent: "center" }}>
+                <button className="btn btn-primary" onClick={() => setShowPlayerLogin(true)}>👤 Ingresar como Jugador</button>
+                <button className="btn btn-ghost" onClick={() => setShowPinModal(true)}>🔑 Ingresar como Admin</button>
+              </div>
+            </div>
+          </div>
+          {showPlayerLogin && (
+            <PlayerLoginModal
+              error={playerLoginError}
+              onClearError={() => setPlayerLoginError("")}
+              onSubmit={handlePlayerLogin}
+              onClose={() => { setShowPlayerLogin(false); setPlayerLoginError(""); }}
+            />
+          )}
+          {showPinModal && <PinModal onSuccess={() => { setShowPinModal(false); setIsAdmin(true); }} onClose={() => setShowPinModal(false)} />}
+        </div>
+      </>
+    );
+  }
+
   /* HOME */
   if (!activeTId)
     return (
@@ -2158,7 +2268,7 @@ export default function App() {
             {isAdmin ? (
               <button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{ marginLeft: 8 }}>🔓 Admin</button>
             ) : (
-              <button className="btn btn-ghost btn-xs" onClick={() => setShowPinModal(true)} style={{ marginLeft: 8 }}>🔑</button>
+              <button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{ marginLeft: 8 }}>👤 Salir</button>
             )}
           </header>
           <div className="main">
@@ -2237,7 +2347,7 @@ export default function App() {
           {isAdmin ? (
             <button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{ marginLeft: 8 }}>🔓 Admin</button>
           ) : (
-            <button className="btn btn-ghost btn-xs" onClick={() => setShowPinModal(true)} style={{ marginLeft: 8 }}>🔑</button>
+            <button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{ marginLeft: 8 }}>👤 Salir</button>
           )}
         </header>
         <div className="main">
