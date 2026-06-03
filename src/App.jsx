@@ -1726,10 +1726,10 @@ export default function App() {
   }
 
   async function guardarCategoria(categoria) {
-    const catRef = doc(db, "categorias", categoria.id);
-    await setDoc(catRef, { ...categoria, torneoId: activeTId });
-  }
-
+  const catRef = doc(db, "categorias", categoria.id);
+  const { parejas, partidos, ...catToSave } = categoria;
+  await setDoc(catRef, { ...catToSave, torneoId: activeTId });
+}
   async function guardarPareja(pareja) {
     const pairRef = doc(db, "parejas", pareja.id);
     const toSave = { ...pareja, categoriaId: activeCId };
