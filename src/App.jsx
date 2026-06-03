@@ -2286,7 +2286,7 @@ export default function App() {
                 ) : (
                   <div className="grid2">
                     {torneos.map((t) => (
-                      <button key={t.id} className="t-card" onClick={() => { setActiveTId(t.id); setActiveCId(null); setSubview("inscripcion"); }}>
+                      <button key={t.id} className="t-card" onClick={() => { setActiveTId(t.id); setActiveCId(null); setSubview(isAdmin ? "inscripcion" : "fixture"); }}>
                         <div className="t-card-name">{t.nombre}</div>
                         <div className="t-card-meta">{t.fecha || "Sin fecha"} · {t.categorias.length} categoría{t.categorias.length !== 1 ? "s" : ""}</div>
                         <div className="row wrap g8">
@@ -2342,7 +2342,7 @@ export default function App() {
             )}
           </div>
           <div className="nav-tabs" style={{ marginLeft: "auto" }}>
-            {TABS.map((tab) => <button key={tab.id} className={`nav-tab${subview === tab.id ? " on" : ""}`} onClick={() => setSubview(tab.id)}>{tab.label}</button>)}
+          {TABS.filter(tab => isAdmin || tab.id !== "inscripcion").map((tab) => <button key={tab.id} className={`nav-tab${subview === tab.id ? " on" : ""}`} onClick={() => setSubview(tab.id)}>{tab.label}</button>)}
           </div>
           {isAdmin ? (
             <button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{ marginLeft: 8 }}>🔓 Admin</button>
@@ -2357,7 +2357,7 @@ export default function App() {
           </div>
           {!activeCat ? <div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoría</p></div> : (
             <>
-              {subview === "inscripcion" && <Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} isAdmin={isAdmin} />}
+              {subview === "inscripcion" && isAdmin && <Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={(p) => setModal({ type: "editPair", pair: p })} onTogglePago={togglePago} isAdmin={isAdmin} />}
               {subview === "fixture" && <Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={(m) => isAdmin && setModal({ type: "editMatch", match: m })} />}
               {subview === "resultados" && <Resultados cat={activeCat} onOpen={(m) => isAdmin && setModal({ type: "res", match: m })} isAdmin={isAdmin} onEditMatch={(m) => isAdmin && setModal({ type: "editMatch", match: m })} />}
               {subview === "posiciones" && <Posiciones cat={activeCat} />}
