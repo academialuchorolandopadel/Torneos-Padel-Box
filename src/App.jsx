@@ -966,36 +966,92 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
   );
 }
 
+const CATEGORY_COLORS = [
+  { bg: "rgba(61,255,160,.12)", border: "rgba(61,255,160,.4)" },   // verde
+  { bg: "rgba(255,100,180,.12)", border: "rgba(255,100,180,.4)" }, // rosa
+  { bg: "rgba(255,203,71,.12)", border: "rgba(255,203,71,.4)" },   // dorado
+  { bg: "rgba(0,212,255,.12)", border: "rgba(0,212,255,.4)" },     // cyan
+  { bg: "rgba(180,100,255,.12)", border: "rgba(180,100,255,.4)" }, // violeta
+  { bg: "rgba(255,140,60,.12)", border: "rgba(255,140,60,.4)" },   // naranja
+  { bg: "rgba(255,80,100,.12)", border: "rgba(255,80,100,.4)" },   // rojo
+  { bg: "rgba(100,200,255,.12)", border: "rgba(100,200,255,.4)" }, // celeste
+];
+
 function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
-  const byId=Object.fromEntries((torneo?.categorias||[]).flatMap(c=>c.parejas||[]).map(p=>[p.id,p]));
-  const days=[...new Set(SLOT_DEFS.map(s=>s.dia))];
-  const ppd={};
-  days.forEach(dia=>{ppd[dia]={};COURTS.forEach(c=>{ppd[dia][c]=[];});});
-  allPartidos.forEach(m=>{if(m.dia&&m.dia!=="?"&&ppd[m.dia]&&ppd[m.dia][m.cancha])ppd[m.dia][m.cancha].push(m);});
-  days.forEach(dia=>COURTS.forEach(c=>ppd[dia][c].sort((a,b)=>(a.mins||0)-(b.mins||0))));
+  const byId = Object.fromEntries((torneo?.categorias || []).flatMap(c => c.parejas || []).map(p => [p.id, p]));
+
+  // Mapa matchId → categoriaId y categoriaId → color
+  const matchCatMap = {};
+  const catColorMap = {};
+  (torneo?.categorias || []).forEach((c, i) => {
+    const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
+    catColorMap[c.id] = color;
+    (c.partidos || []).forEach(m => { matchCatMap[m.id] = c.id; });
+    (c.knockoutRounds || []).flat().forEach(m => { matchCatMap[m.id] = c.id; });
+  });
+
+  const days = [...new Set(SLOT_DEFS.map(s => s.dia))];
+  const ppd = {};
+  days.forEach(dia => { ppd[dia] = {}; COURTS.forEach(c => { ppd[dia][c] = []; }); });
+  allPartidos.forEach(m => { if (m.dia && m.dia !== "?" && ppd[m.dia] && ppd[m.dia][m.cancha]) ppd[m.dia][m.cancha].push(m); });
+  days.forEach(dia => COURTS.forEach(c => ppd[dia][c].sort((a, b) => (a.mins || 0) - (b.mins || 0))));
+
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Agenda</div><span className="badge bb">Vista diaria</span></div>
-      {days.map(dia=>{
-        const slotsDia=SLOT_DEFS.filter(s=>s.dia===dia).sort((a,b)=>a.mins-b.mins);
+
+      {/* Leyenda de categorías */}
+      <div className="card mb16">
+        <div className="card-title" style={{ marginBottom: 10 }}>Referencias</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {(torneo?.categorias || []).map((c, i) => {
+            const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
+            return (
+              <span key={c.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: color.bg, border: `1px solid ${color.border}`, fontSize: 12, fontWeight: 600 }}>
+                {c.nombre}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {days.map(dia => {
+        const slotsDia = SLOT_DEFS.filter(s => s.dia === dia).sort((a, b) => a.mins - b.mins);
         if (!slotsDia.length) return null;
         return (
           <div key={dia} className="card mb16">
             <div className="card-title">{dia}</div>
             <div className="sched-grid">
-              {COURTS.map(cancha=>(
+              {COURTS.map(cancha => (
                 <div key={cancha}>
                   <div className="court-hdr">{cancha}</div>
                   <div className="court-body">
-                    {slotsDia.map(slot=>{
-                      const partido=(ppd[dia][cancha]||[]).find(m=>m.hora===slot.hora);
+                    {slotsDia.map(slot => {
+                      const partido = (ppd[dia][cancha] || []).find(m => m.hora === slot.hora);
+                      const catId = partido ? matchCatMap[partido.id] : null;
+                      const color = catId ? catColorMap[catId] : null;
                       return (
-                        <div key={`${dia}|${slot.hora}|${cancha}`} className="court-slot" style={{cursor:partido&&isAdmin?"pointer":"default"}} onClick={()=>partido&&isAdmin&&onEditMatch&&onEditMatch(partido)}>
-                          {partido?(
-                            <><div><div className="slot-day">{partido.dia}</div><div className="slot-time">{partido.hora}</div><div className="slot-match">{byId[partido.p1id]?.nombre||"?"} vs {byId[partido.p2id]?.nombre||"?"}</div></div>
-                            <div className="col" style={{alignItems:"flex-end",gap:4}}><span className="slot-code">{partido.code}</span>{partido.done&&<span style={{fontSize:9,color:"var(--accent)"}}>✓</span>}</div></>
-                          ):(
-                            <div style={{color:"var(--muted)",fontSize:12,padding:"4px 0"}}>{slot.hora} — Libre</div>
+                        <div key={`${dia}|${slot.hora}|${cancha}`} className="court-slot"
+                          style={{
+                            cursor: partido && isAdmin ? "pointer" : "default",
+                            background: color ? color.bg : "transparent",
+                            borderLeft: color ? `3px solid ${color.border}` : "3px solid transparent",
+                          }}
+                          onClick={() => partido && isAdmin && onEditMatch && onEditMatch(partido)}>
+                          {partido ? (
+                            <>
+                              <div>
+                                <div className="slot-day">{partido.dia}</div>
+                                <div className="slot-time">{partido.hora}</div>
+                                <div className="slot-match">{byId[partido.p1id]?.nombre || "?"} vs {byId[partido.p2id]?.nombre || "?"}</div>
+                              </div>
+                              <div className="col" style={{ alignItems: "flex-end", gap: 4 }}>
+                                <span className="slot-code">{partido.code}</span>
+                                {partido.done && <span style={{ fontSize: 9, color: "var(--accent)" }}>✓</span>}
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ color: "var(--muted)", fontSize: 12, padding: "4px 0" }}>{slot.hora} — Libre</div>
                           )}
                         </div>
                       );
