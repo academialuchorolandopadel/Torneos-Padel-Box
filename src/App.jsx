@@ -2224,8 +2224,14 @@ export default function App() {
   }
 
   async function actualizarClasificados() {
-    if (!activeCat || !activeCat.fixtureGenerado) return;
-    const newKnockout = JSON.parse(JSON.stringify(activeCat.knockoutRounds));
+  if (!activeCat || !activeCat.fixtureGenerado) return;
+  
+  // Si el bracket está vacío o incompleto, reconstruirlo desde cero
+  const baseKnockout = (!activeCat.knockoutRounds || activeCat.knockoutRounds.length < 4)
+    ? buildFixedBracket([])
+    : activeCat.knockoutRounds;
+  
+  const newKnockout = JSON.parse(JSON.stringify(baseKnockout));
     const classified = [];
     activeCat.grupos.forEach((g) => {
       const gIds = activeCat.parejas.filter(p => p.grupoId === g.id).map(p => p.id);
