@@ -1137,18 +1137,41 @@ export default function App() {
   async function guardarPartido(p){await setDoc(doc(db,"partidos",p.id),{...p,categoriaId:activeCId});}
   async function guardarKnockout(rounds){await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rounds,knockoutGenerated:true});}
 
-  async function editarPartido(matchId,changes){
-    if (!activeCat) return;
-    let updated=false;
-    const pi=activeCat.partidos.findIndex(p=>p.id===matchId);
-    if (pi!==-1){const np=[...activeCat.partidos];np[pi]={...np[pi],...changes};updateCat(activeCId,c=>({...c,partidos:np}));await guardarPartido(np[pi]);updated=true;}
-    else {
-      let nk=activeCat.knockoutRounds?[...activeCat.knockoutRounds]:[];let found=false;
-      for(let i=0;i<nk.length;i++){const mi=nk[i].findIndex(m=>m.id===matchId);if(mi!==-1){nk[i][mi]={...nk[i][mi],...changes};found=true;break;}}
-      if(found){updateCat(activeCId,c=>({...c,knockoutRounds:nk}));await guardarKnockout(nk);updated=true;}
+  async function editarPartido(matchId, changes) {
+  let targetCat = activeCat, targetCatId = activeCId;
+  if (!targetCat?.partidos?.some(p => p.id === matchId) && !targetCat?.knockoutRounds?.flat()?.some(p => p.id === matchId)) {
+    for (const c of activeTorneo?.categorias || []) {
+      if (c.partidos?.some(p => p.id === matchId) || c.knockoutRounds?.flat()?.some(p => p.id === matchId)) {
+        targetCat = c; targetCatId = c.id; break;
+      }
     }
-    if(!updated)console.warn("Partido no encontrado:",matchId);
   }
+  if (!targetCat) return;
+  let updated = false;
+  const pi = targetCat.partidos.findIndex(p => p.id === matchId);
+  if (pi !== -1) {
+    const np = [...targetCat.partidos];
+    np[pi] = { ...np[pi], ...changes };
+    updateCat(targetCatId, c => ({ ...c, partidos: np }));
+    const matchRef = doc(db, "partidos", matchId);
+    await updateDoc(matchRef, changes);
+    updated = true;
+  } else {
+    let nk = targetCat.knockoutRounds ? [...targetCat.knockoutRounds] : [];
+    let found = false;
+    for (let i = 0; i < nk.length; i++) {
+      const mi = nk[i].findIndex(m => m.id === matchId);
+      if (mi !== -1) { nk[i][mi] = { ...nk[i][mi], ...changes }; found = true; break; }
+    }
+    if (found) {
+      updateCat(targetCatId, c => ({ ...c, knockoutRounds: nk }));
+      await updateDoc(doc(db, "categorias", targetCatId), { knockoutRounds: nk });
+      updated = true;
+    }
+  }
+  if (!updated) console.warn("Partido no encontrado:", matchId);
+  setModal(null);
+}
 
   async function crearTorneo(){
     if (!tForm.nombre.trim()) return;
@@ -1420,7 +1443,11 @@ export default function App() {
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)}/>}
     {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)}/>}
-    {modal?.type==="editMatch"&&activeCat&&<EditMatchModal match={modal.match} cat={activeCat} allPartidos={[...activeCat.partidos,...(activeCat.knockoutRounds?.flat()||[])]} onSave={editarPartido} onClose={()=>setModal(null)}/>}
+    {modal?.type==="editMatch"&&(()=>{
+  const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
+  if(!matchCat)return null;
+  return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={[...matchCat.partidos,...(matchCat.knockoutRounds?.flat()||[])]} onSave={editarPartido} onClose={()=>setModal(null)}/>;
+})()}
     {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 }
