@@ -169,7 +169,7 @@ function calcStandings(pairIds, pairs, matches) {
   }
 }
 
-function calcClassified(cat) {
+function calcClassified(cat, allowPartial=false) {
   const zonaStatus = cat.grupos.map(g => {
     const partidos = cat.partidos.filter(m => m.grupoId===g.id && m.p1id && m.p2id && m.zona4Tipo!=="C" && m.zona4Tipo!=="D");
     const done = partidos.filter(m=>m.done).length;
@@ -177,14 +177,16 @@ function calcClassified(cat) {
   });
   const todasCompletas = zonaStatus.length>0 && zonaStatus.every(z=>z.completa);
   const pendientes = zonaStatus.filter(z=>!z.completa).map(z=>z.grupo.nombre);
-  if (!todasCompletas) return { listo:false, pendientes, classified:[] };
+  if (!todasCompletas && !allowPartial) return { listo:false, pendientes, classified:[] };
   const primeros=[], segundos=[], terceros=[];
   cat.grupos.forEach(g => {
+    const zonaCompleta=zonaStatus.find(z=>z.grupo.id===g.id)?.completa||false;
     const gIds = cat.parejas.filter(p=>p.grupoId===g.id).map(p=>p.id);
+    if(!gIds.length)return;
     const st = calcStandings(gIds, cat.parejas, cat.partidos.filter(m=>m.grupoId===g.id));
-    if (st[0]) primeros.push({...st[0], grupo:g.nombre, pos:1});
-    if (st[1]) segundos.push({...st[1], grupo:g.nombre, pos:2});
-    if (st[2]) terceros.push({...st[2], grupo:g.nombre, pos:3});
+    if (st[0]) primeros.push({...st[0], grupo:g.nombre, pos:1, provisorio:!zonaCompleta});
+    if (st[1]) segundos.push({...st[1], grupo:g.nombre, pos:2, provisorio:!zonaCompleta});
+    if (st[2]) terceros.push({...st[2], grupo:g.nombre, pos:3, provisorio:!zonaCompleta});
   });
   terceros.sort((a,b) => b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp));
   let bracketSize=4;
@@ -192,11 +194,11 @@ function calcClassified(cat) {
   const tercerosNeeded = Math.max(0, bracketSize-primeros.length-segundos.length);
   const tercerosClasificados = terceros.slice(0, tercerosNeeded);
   const classified = [
-    ...primeros.map(s=>({pairId:s.id, grupo:s.grupo, pos:1, pts:s.pts, sg:s.sg, sp:s.sp})),
-    ...segundos.map(s=>({pairId:s.id, grupo:s.grupo, pos:2, pts:s.pts, sg:s.sg, sp:s.sp})),
-    ...tercerosClasificados.map(s=>({pairId:s.id, grupo:s.grupo, pos:3, pts:s.pts, sg:s.sg, sp:s.sp})),
+    ...primeros.map(s=>({pairId:s.id, grupo:s.grupo, pos:1, pts:s.pts, sg:s.sg, sp:s.sp, provisorio:s.provisorio})),
+    ...segundos.map(s=>({pairId:s.id, grupo:s.grupo, pos:2, pts:s.pts, sg:s.sg, sp:s.sp, provisorio:s.provisorio})),
+    ...tercerosClasificados.map(s=>({pairId:s.id, grupo:s.grupo, pos:3, pts:s.pts, sg:s.sg, sp:s.sp, provisorio:s.provisorio})),
   ];
-  return { listo:true, pendientes:[], classified, bracketSize, zonaStatus };
+  return { listo:todasCompletas, pendientes, classified, bracketSize, zonaStatus, provisorio:!todasCompletas };
 }
 
 function buildDynamicBracket(classified, bracketSize) {
@@ -246,7 +248,7 @@ function buildDynamicBracket(classified, bracketSize) {
     const a=slots[i], b=slots[i+1];
     const p1id=a?.pairId||null, p2id=b?.pairId||null;
     const byeMatch=(a&&!b)||(!a&&b), emptyMatch=!a&&!b;
-    r0.push({ id:uid(), round:0, slot:r0.length, p1id, p1label:a?`${a.pos}° ${a.grupo}`:"BYE", p2id, p2label:b?`${b.pos}° ${b.grupo}`:"BYE",
+    r0.push({ id:uid(), round:0, slot:r0.length, p1id, p1label:a?`${a.pos}° ${a.grupo}`:"BYE", p1provisorio:a?.provisorio||false, p2id, p2label:b?`${b.pos}° ${b.grupo}`:"BYE", p2provisorio:b?.provisorio||false,
       done:byeMatch||emptyMatch, winner:byeMatch?(p1id||p2id):null, auto:byeMatch||emptyMatch,
       s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"", prevIds:[] });
   }
@@ -877,6 +879,8 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
     return {nombre:g.nombre,done,total:partidos.length,completa:partidos.length>0&&done===partidos.length};
   }):[];
   const todasCompletas=zonaStatus.length>0&&zonaStatus.every(z=>z.completa);
+  const puedeGenerar=cat.fixtureGenerado&&cat.grupos.length>0;
+  const esProvisorio=puedeGenerar&&!todasCompletas;
   const roundNames=getRoundNames(cat.knockoutRounds);
   const knockoutRoundsWithSchedules=React.useMemo(()=>{
     if (!cat.knockoutRounds||!cat.knockoutRounds.length) return [];
@@ -895,7 +899,7 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           {cat.knockoutGenerated&&<span className="badge bb">{koDone}/{koTotal}</span>}
           {!pointsAwarded&&koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🏅 Otorgar puntos</button>}
           {pointsAwarded&&<span className="badge bg">✓ Puntos otorgados</span>}
-          {isAdmin&&<button className={`btn btn-sm ${todasCompletas?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!todasCompletas} title={todasCompletas?"Generar llave":"Zonas pendientes"} style={{opacity:todasCompletas?1:0.4,cursor:todasCompletas?'pointer':'not-allowed'}}>{cat.knockoutGenerated?"🔄 Regenerar Llave":"🏆 Generar Llave Final"}</button>}
+          {isAdmin&&<button className={`btn btn-sm ${puedeGenerar?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!puedeGenerar} title={puedeGenerar?"Generar llave":"Generá el fixture primero"} style={{opacity:puedeGenerar?1:0.4,cursor:puedeGenerar?'pointer':'not-allowed'}}>{cat.knockoutGenerated?(todasCompletas?"🔄 Regenerar Llave":"🔄 Actualizar Llave"):(todasCompletas?"🏆 Generar Llave Final":"⚡ Llave Provisional")}</button>}
         </div>
       </div>
       {cat.fixtureGenerado&&(
@@ -904,8 +908,9 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           <div style={{display:"flex",flexWrap:"wrap"}}>
             {zonaStatus.map(z=><span key={z.nombre} className={`zona-pill ${z.completa?"done":"pending"}`}>{z.completa?"✅":"⏳"} {z.nombre} — {z.done}/{z.total}</span>)}
           </div>
-          {todasCompletas&&!cat.knockoutGenerated&&<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(61,255,160,.06)",border:"1px solid rgba(61,255,160,.2)",color:"var(--accent)"}}>✓ Todas las zonas completadas. Podés generar la llave final.</div>}
-          {!todasCompletas&&<div className="alert alert-warn" style={{marginTop:12,marginBottom:0}}>⏳ Completá todas las zonas para generar la llave final.</div>}
+          {todasCompletas&&<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(61,255,160,.06)",border:"1px solid rgba(61,255,160,.2)",color:"var(--accent)"}}>✓ Zonas completadas. La llave es definitiva.</div>}
+          {!todasCompletas&&cat.knockoutGenerated&&<div className="alert alert-warn" style={{marginTop:12,marginBottom:0}}>⚡ Llave provisional — se actualiza automáticamente al completar cada zona.</div>}
+          {!todasCompletas&&!cat.knockoutGenerated&&<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(0,212,255,.05)",border:"1px solid rgba(0,212,255,.2)",color:"var(--accent2)"}}>💡 Podés generar una llave provisional para planificar los horarios.</div>}
         </div>
       )}
       {campeon&&(
@@ -929,11 +934,11 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
                     return (
                       <div key={m.id} className={`br-match${m.done?" done":""}`} onClick={()=>canPlay&&onOpen(m)} style={{cursor:canPlay?'pointer':'default',opacity:m.auto?0.5:1}}>
                         <div className={`br-team${!p1?" tbd":m.done&&m.winner===m.p1id?" win":""}`}>
-                          <span>{p1?p1.nombre:m.p1label||"TBD"}</span>
+                          <span style={{display:"flex",alignItems:"center",gap:4,flex:1}}>{p1?p1.nombre:m.p1label||"TBD"}{m.p1provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
                           {m.done&&!m.auto&&<span className="br-score">{m.s1p1} {m.s2p1}</span>}
                         </div>
                         <div className={`br-team${!p2?" tbd":m.done&&m.winner===m.p2id?" win":""}`}>
-                          <span>{p2?p2.nombre:m.p2label||"TBD"}</span>
+                          <span style={{display:"flex",alignItems:"center",gap:4,flex:1}}>{p2?p2.nombre:m.p2label||"TBD"}{m.p2provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
                           {m.done&&!m.auto&&<span className="br-score">{m.s1p2} {m.s2p2}</span>}
                         </div>
                         {m.dia&&m.hora&&m.cancha&&!m.auto&&<div className="br-schedule">{m.dia} {m.hora} · {m.cancha}{isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}</div>}
@@ -1288,6 +1293,35 @@ export default function App() {
     setModal(null);
   }
 
+  async function recalcularLlaveProvisoria(catData){
+    if(!catData?.knockoutGenerated||!catData?.knockoutRounds?.length)return;
+    const result=calcClassified(catData,true);
+    if(!result.classified?.length)return;
+    const{classified,bracketSize}=result;
+    const newRounds=buildDynamicBracket(classified,bracketSize);
+    const existingRounds=catData.knockoutRounds||[];
+    const existingSize=existingRounds[0]?existingRounds[0].length*2:0;
+    let finalRounds;
+    if(existingSize!==bracketSize||existingRounds.length===0){
+      finalRounds=newRounds;
+    }else{
+      finalRounds=newRounds.map((round,ri)=>round.map((match,mi)=>{
+        const old=existingRounds[ri]?.[mi];
+        if(!old)return match;
+        if(old.done&&!old.auto)return{...old,p1label:match.p1label,p2label:match.p2label,p1provisorio:match.p1provisorio,p2provisorio:match.p2provisorio};
+        return{...match,id:old.id};
+      }));
+    }
+    const playedKO=finalRounds.flat().filter(m=>m.done&&!m.auto&&m.dia);
+    const allExisting=[
+      ...(torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>c.partidos)||[]),
+      ...playedKO
+    ];
+    const rescheduled=scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
+    updateCat(activeCId,c=>({...c,knockoutRounds:rescheduled}));
+    await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rescheduled});
+  }
+
   async function crearTorneo(){
     if(!tForm.nombre.trim())return;
     const newId=uid();
@@ -1390,8 +1424,8 @@ export default function App() {
 
   async function generarLlave(){
     if(!activeCat||!activeCat.fixtureGenerado)return;
-    const result=calcClassified(activeCat);
-    if(!result.listo){alert(`Zonas pendientes de completar: ${result.pendientes.join(", ")}`);return;}
+    const result=calcClassified(activeCat,true);
+    if(!result.classified?.length){alert("No hay suficientes datos para generar la llave");return;}
     const{classified,bracketSize}=result;
     const newRounds=buildDynamicBracket(classified,bracketSize);
     const allExisting=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>c.partidos)||[];
@@ -1421,6 +1455,12 @@ export default function App() {
     await updateDoc(doc(db,"partidos",matchId),result);
     if(updatedC)await updateDoc(doc(db,"partidos",updatedC.id),updatedC);
     if(updatedD)await updateDoc(doc(db,"partidos",updatedD.id),updatedD);
+    if(cat.knockoutGenerated){
+      let updPart=cat.partidos.map(p=>{if(p.id===matchId){const w=result.done?calcMatchResult({...p,...result}):null;return{...p,...result,winner:w};}return p;});
+      if(updatedC)updPart=updPart.map(p=>p.id===updatedC.id?updatedC:p);
+      if(updatedD)updPart=updPart.map(p=>p.id===updatedD.id?updatedD:p);
+      await recalcularLlaveProvisoria({...cat,partidos:updPart});
+    }
   }
 
   async function guardarResultadoKnockout(matchId,result){
