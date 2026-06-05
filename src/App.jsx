@@ -898,7 +898,6 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           {isAdmin&&<button className={`btn btn-sm ${todasCompletas?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!todasCompletas} title={todasCompletas?"Generar llave":"Zonas pendientes"} style={{opacity:todasCompletas?1:0.4,cursor:todasCompletas?'pointer':'not-allowed'}}>{cat.knockoutGenerated?"🔄 Regenerar Llave":"🏆 Generar Llave Final"}</button>}
         </div>
       </div>
-
       {cat.fixtureGenerado&&(
         <div className="card mb16">
           <div className="card-title" style={{marginBottom:10}}>Estado de Zonas</div>
@@ -909,7 +908,6 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           {!todasCompletas&&<div className="alert alert-warn" style={{marginTop:12,marginBottom:0}}>⏳ Completá todas las zonas para generar la llave final.</div>}
         </div>
       )}
-
       {campeon&&(
         <div className="card mb16" style={{background:"rgba(255,203,71,.06)",borderColor:"rgba(255,203,71,.3)",textAlign:"center",padding:28}}>
           <div style={{fontSize:32}}>🏆</div>
@@ -918,7 +916,6 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           <div style={{fontSize:12,color:"var(--muted)",marginTop:4}}>{campeon.j1nombre||campeon.j1} · {campeon.j2nombre||campeon.j2}</div>
         </div>
       )}
-
       {cat.knockoutGenerated&&knockoutRoundsWithSchedules.length>0&&(
         <div className="card mb16">
           <div className="bracket-wrap"><div className="bracket">
@@ -949,7 +946,6 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           </div></div>
         </div>
       )}
-
       <div className="card">
         <div className="card-title">Posiciones Finales</div>
         <table className="tbl">
@@ -967,91 +963,65 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
 }
 
 const CATEGORY_COLORS = [
-  { bg: "rgba(61,255,160,.12)", border: "rgba(61,255,160,.4)" },   // verde
-  { bg: "rgba(255,100,180,.12)", border: "rgba(255,100,180,.4)" }, // rosa
-  { bg: "rgba(255,203,71,.12)", border: "rgba(255,203,71,.4)" },   // dorado
-  { bg: "rgba(0,212,255,.12)", border: "rgba(0,212,255,.4)" },     // cyan
-  { bg: "rgba(180,100,255,.12)", border: "rgba(180,100,255,.4)" }, // violeta
-  { bg: "rgba(255,140,60,.12)", border: "rgba(255,140,60,.4)" },   // naranja
-  { bg: "rgba(255,80,100,.12)", border: "rgba(255,80,100,.4)" },   // rojo
-  { bg: "rgba(100,200,255,.12)", border: "rgba(100,200,255,.4)" }, // celeste
+  { bg: "rgba(61,255,160,.12)", border: "rgba(61,255,160,.4)" },
+  { bg: "rgba(255,100,180,.12)", border: "rgba(255,100,180,.4)" },
+  { bg: "rgba(255,203,71,.12)", border: "rgba(255,203,71,.4)" },
+  { bg: "rgba(0,212,255,.12)", border: "rgba(0,212,255,.4)" },
+  { bg: "rgba(180,100,255,.12)", border: "rgba(180,100,255,.4)" },
+  { bg: "rgba(255,140,60,.12)", border: "rgba(255,140,60,.4)" },
+  { bg: "rgba(255,80,100,.12)", border: "rgba(255,80,100,.4)" },
+  { bg: "rgba(100,200,255,.12)", border: "rgba(100,200,255,.4)" },
 ];
 
 function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
-  const byId = Object.fromEntries((torneo?.categorias || []).flatMap(c => c.parejas || []).map(p => [p.id, p]));
-
-  // Mapa matchId → categoriaId y categoriaId → color
-  const matchCatMap = {};
-  const catColorMap = {};
-  (torneo?.categorias || []).forEach((c, i) => {
-    const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
-    catColorMap[c.id] = color;
-    (c.partidos || []).forEach(m => { matchCatMap[m.id] = c.id; });
-    (c.knockoutRounds || []).flat().forEach(m => { matchCatMap[m.id] = c.id; });
+  const byId=Object.fromEntries((torneo?.categorias||[]).flatMap(c=>c.parejas||[]).map(p=>[p.id,p]));
+  const matchCatMap={};const catColorMap={};
+  (torneo?.categorias||[]).forEach((c,i)=>{
+    const color=CATEGORY_COLORS[i%CATEGORY_COLORS.length];catColorMap[c.id]=color;
+    (c.partidos||[]).forEach(m=>{matchCatMap[m.id]=c.id;});
+    (c.knockoutRounds||[]).flat().forEach(m=>{matchCatMap[m.id]=c.id;});
   });
-
-  const days = [...new Set(SLOT_DEFS.map(s => s.dia))];
-  const ppd = {};
-  days.forEach(dia => { ppd[dia] = {}; COURTS.forEach(c => { ppd[dia][c] = []; }); });
-  allPartidos.forEach(m => { if (m.dia && m.dia !== "?" && ppd[m.dia] && ppd[m.dia][m.cancha]) ppd[m.dia][m.cancha].push(m); });
-  days.forEach(dia => COURTS.forEach(c => ppd[dia][c].sort((a, b) => (a.mins || 0) - (b.mins || 0))));
-
+  const days=[...new Set(SLOT_DEFS.map(s=>s.dia))];
+  const ppd={};
+  days.forEach(dia=>{ppd[dia]={};COURTS.forEach(c=>{ppd[dia][c]=[];});});
+  allPartidos.forEach(m=>{if(m.dia&&m.dia!=="?"&&ppd[m.dia]&&ppd[m.dia][m.cancha])ppd[m.dia][m.cancha].push(m);});
+  days.forEach(dia=>COURTS.forEach(c=>ppd[dia][c].sort((a,b)=>(a.mins||0)-(b.mins||0))));
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Agenda</div><span className="badge bb">Vista diaria</span></div>
-
-      {/* Leyenda de categorías */}
       <div className="card mb16">
-        <div className="card-title" style={{ marginBottom: 10 }}>Referencias</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {(torneo?.categorias || []).map((c, i) => {
-            const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
-            return (
-              <span key={c.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: color.bg, border: `1px solid ${color.border}`, fontSize: 12, fontWeight: 600 }}>
-                {c.nombre}
-              </span>
-            );
+        <div className="card-title" style={{marginBottom:10}}>Referencias</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {(torneo?.categorias||[]).map((c,i)=>{
+            const color=CATEGORY_COLORS[i%CATEGORY_COLORS.length];
+            return <span key={c.id} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:color.bg,border:`1px solid ${color.border}`,fontSize:12,fontWeight:600}}>{c.nombre}</span>;
           })}
         </div>
       </div>
-
-      {days.map(dia => {
-        const slotsDia = SLOT_DEFS.filter(s => s.dia === dia).sort((a, b) => a.mins - b.mins);
+      {days.map(dia=>{
+        const slotsDia=SLOT_DEFS.filter(s=>s.dia===dia).sort((a,b)=>a.mins-b.mins);
         if (!slotsDia.length) return null;
         return (
           <div key={dia} className="card mb16">
             <div className="card-title">{dia}</div>
             <div className="sched-grid">
-              {COURTS.map(cancha => (
+              {COURTS.map(cancha=>(
                 <div key={cancha}>
                   <div className="court-hdr">{cancha}</div>
                   <div className="court-body">
-                    {slotsDia.map(slot => {
-                      const partido = (ppd[dia][cancha] || []).find(m => m.hora === slot.hora);
-                      const catId = partido ? matchCatMap[partido.id] : null;
-                      const color = catId ? catColorMap[catId] : null;
+                    {slotsDia.map(slot=>{
+                      const partido=(ppd[dia][cancha]||[]).find(m=>m.hora===slot.hora);
+                      const catId=partido?matchCatMap[partido.id]:null;
+                      const color=catId?catColorMap[catId]:null;
                       return (
                         <div key={`${dia}|${slot.hora}|${cancha}`} className="court-slot"
-                          style={{
-                            cursor: partido && isAdmin ? "pointer" : "default",
-                            background: color ? color.bg : "transparent",
-                            borderLeft: color ? `3px solid ${color.border}` : "3px solid transparent",
-                          }}
-                          onClick={() => partido && isAdmin && onEditMatch && onEditMatch(partido)}>
-                          {partido ? (
-                            <>
-                              <div>
-                                <div className="slot-day">{partido.dia}</div>
-                                <div className="slot-time">{partido.hora}</div>
-                                <div className="slot-match">{byId[partido.p1id]?.nombre || "?"} vs {byId[partido.p2id]?.nombre || "?"}</div>
-                              </div>
-                              <div className="col" style={{ alignItems: "flex-end", gap: 4 }}>
-                                <span className="slot-code">{partido.code}</span>
-                                {partido.done && <span style={{ fontSize: 9, color: "var(--accent)" }}>✓</span>}
-                              </div>
-                            </>
-                          ) : (
-                            <div style={{ color: "var(--muted)", fontSize: 12, padding: "4px 0" }}>{slot.hora} — Libre</div>
+                          style={{cursor:partido&&isAdmin?"pointer":"default",background:color?color.bg:"transparent",borderLeft:color?`3px solid ${color.border}`:"3px solid transparent"}}
+                          onClick={()=>partido&&isAdmin&&onEditMatch&&onEditMatch(partido)}>
+                          {partido?(
+                            <><div><div className="slot-day">{partido.dia}</div><div className="slot-time">{partido.hora}</div><div className="slot-match">{byId[partido.p1id]?.nombre||"?"} vs {byId[partido.p2id]?.nombre||"?"}</div></div>
+                            <div className="col" style={{alignItems:"flex-end",gap:4}}><span className="slot-code">{partido.code}</span>{partido.done&&<span style={{fontSize:9,color:"var(--accent)"}}>✓</span>}</div></>
+                          ):(
+                            <div style={{color:"var(--muted)",fontSize:12,padding:"4px 0"}}>{slot.hora} — Libre</div>
                           )}
                         </div>
                       );
@@ -1067,11 +1037,16 @@ function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
   );
 }
 
-function JugadoresView({ jugadores, onDeleteJugador, isAdmin }) {
+const CAT_LABELS={1:"1ra",2:"2da",3:"3ra",4:"4ta",5:"5ta",6:"6ta",7:"7ma",8:"8va"};
+const CAT_COLORS={1:"rgba(255,80,100,.15)",2:"rgba(255,140,60,.15)",3:"rgba(255,203,71,.15)",4:"rgba(180,100,255,.15)",5:"rgba(0,212,255,.15)",6:"rgba(61,255,160,.15)",7:"rgba(100,200,255,.15)",8:"rgba(100,130,160,.15)"};
+
+function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, isAdmin }) {
   const [sel,setSel]=useState(null);
+  const [editingCat,setEditingCat]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
   const jug=sel?jugadores[sel]:null;
   const handleDelete=(cedula,e)=>{e.stopPropagation();if(!isAdmin)return;if(window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)){onDeleteJugador(cedula);if(sel===cedula)setSel(null);}};
+  const handleCatChange=(cedula,val)=>{onUpdateCategoria(cedula,val?Number(val):null);setEditingCat(null);};
   return (
     <div>
       <div className="sec-hdr"><div className="sec-title">Ranking de Jugadores</div><span className="badge bb">{list.length} registrados</span></div>
@@ -1082,15 +1057,32 @@ function JugadoresView({ jugadores, onDeleteJugador, isAdmin }) {
           <div>{list.map((j,i)=>(
             <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)"}} onClick={()=>setSel(sel===j.cedula?null:j.cedula)}>
               <div className={`rank-pos${i===0?" p1":i===1?" p2":i===2?" p3":""}`}>{i+1}</div>
-              <div className="f1"><div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>CI: {j.cedula}</div></div>
+              <div className="f1">
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div>
+                  {j.categoria&&<span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,background:CAT_COLORS[j.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[j.categoria]}</span>}
+                </div>
+                <div style={{fontSize:11,color:"var(--muted)"}}>CI: {j.cedula}</div>
+              </div>
               <div className="col" style={{alignItems:"flex-end"}}><div className="rank-pts">{j.totalPts}</div><div className="rank-pts-lbl">puntos</div></div>
+              {isAdmin&&(editingCat===j.cedula?(
+                <select className="inp" style={{width:80,fontSize:11,padding:"3px 6px"}} autoFocus value={j.categoria||""} onChange={e=>{e.stopPropagation();handleCatChange(j.cedula,e.target.value);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingCat(null)}>
+                  <option value="">Sin cat.</option>
+                  {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{CAT_LABELS[n]}</option>)}
+                </select>
+              ):(
+                <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Editar categoría">🏷️</button>
+              ))}
               <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
             </div>
           ))}</div>
           <div>{jug?(
             <div className="card" style={{position:"sticky",top:90}}>
               <div className="card-title">Historial — {jug.nombre}</div>
-              <div style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>CI: {jug.cedula}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{fontSize:12,color:"var(--muted)"}}>CI: {jug.cedula}</div>
+                {jug.categoria&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:5,background:CAT_COLORS[jug.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[jug.categoria]}</span>}
+              </div>
               <div style={{fontFamily:"Oswald",fontSize:36,fontWeight:700,color:"var(--accent)",marginBottom:2}}>{jug.totalPts}</div>
               <div style={{fontSize:11,color:"var(--muted)",marginBottom:16,letterSpacing:1,textTransform:"uppercase"}}>puntos totales</div>
               {jug.historial.map((h,i)=>(
@@ -1107,7 +1099,86 @@ function JugadoresView({ jugadores, onDeleteJugador, isAdmin }) {
   );
 }
 
+function MiTorneo({ torneo, playerCedula }) {
+  const DAY_SHORT={"JUEVES":"JUE","VIERNES":"VIE","SÁBADO":"SÁB","DOMINGO":"DOM"};
+  if(!playerCedula)return<div className="empty"><div className="empty-ico">👤</div><p>No se pudo identificar tu jugador</p></div>;
+  const misData=[];
+  (torneo?.categorias||[]).forEach(cat=>{
+    const miPareja=cat.parejas?.find(p=>p.j1cedula===playerCedula||p.j2cedula===playerCedula);
+    if(!miPareja)return;
+    const byId=Object.fromEntries((cat.parejas||[]).map(p=>[p.id,p]));
+    const misPartidos=[
+      ...(cat.partidos||[]).filter(m=>m.p1id===miPareja.id||m.p2id===miPareja.id),
+      ...(cat.knockoutRounds||[]).flat().filter(m=>m.p1id===miPareja.id||m.p2id===miPareja.id)
+    ].filter(m=>m.p1id&&m.p2id).sort((a,b)=>(a.mins||0)-(b.mins||0));
+    const miGrupo=cat.grupos?.find(g=>g.id===miPareja.grupoId);
+    const zonaIds=(cat.parejas||[]).filter(p=>p.grupoId===miPareja.grupoId).map(p=>p.id);
+    const standing=miGrupo?calcStandings(zonaIds,cat.parejas,(cat.partidos||[]).filter(m=>m.grupoId===miPareja.grupoId)):[];
+    const stages=cat.knockoutGenerated?calcPairStages(cat):{};
+    const miStage=stages[miPareja.id];
+    misData.push({cat,miPareja,misPartidos,miGrupo,standing,byId,miStage});
+  });
+  if(misData.length===0)return<div className="empty"><div className="empty-ico">🎾</div><p>No estás inscripto en ninguna categoría de este torneo</p></div>;
+  return(
+    <div>
+      {misData.map(({cat,miPareja,misPartidos,miGrupo,standing,byId,miStage})=>(
+        <div key={cat.id}>
+          <div className="sec-hdr">
+            <div className="sec-title">{cat.nombre}</div>
+            {miStage&&<span className="badge bg">{STAGE_LABEL[miStage]}</span>}
+          </div>
+          <div className="card mb16">
+            <div className="card-title">Mis Partidos</div>
+            {misPartidos.length===0?<div style={{color:"var(--muted)",fontSize:13,padding:"8px 0"}}>No hay partidos asignados aún</div>
+            :misPartidos.map(m=>{
+              const rival=m.p1id===miPareja.id?byId[m.p2id]:byId[m.p1id];
+              const esP1=m.p1id===miPareja.id;
+              const gane=m.done&&m.winner===miPareja.id;
+              const s1a=esP1?m.s1p1:m.s1p2,s1b=esP1?m.s1p2:m.s1p1;
+              const s2a=esP1?m.s2p1:m.s2p2,s2b=esP1?m.s2p2:m.s2p1;
+              return(
+                <div key={m.id} style={{background:m.done?(gane?"rgba(61,255,160,.06)":"rgba(255,51,85,.04)"):"var(--bg3)",border:`1px solid ${m.done?(gane?"rgba(61,255,160,.3)":"rgba(255,51,85,.2)"):"var(--border)"}`,borderRadius:10,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{textAlign:"center",minWidth:52}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",letterSpacing:1}}>{DAY_SHORT[m.dia]||m.dia||"—"}</div>
+                    <div style={{fontFamily:"Oswald",fontSize:22,fontWeight:700,color:"var(--text)",lineHeight:1.1}}>{m.hora||"—"}</div>
+                    <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{m.cancha||""}</div>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,color:"var(--muted)",marginBottom:2,letterSpacing:1,textTransform:"uppercase"}}>vs</div>
+                    <div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{rival?.nombre||"Por definir"}</div>
+                    {m.done&&<div style={{fontSize:12,fontWeight:700,marginTop:4,color:gane?"var(--accent)":"var(--danger)"}}>{gane?"✓ Ganado":"✗ Perdido"} <span style={{color:"var(--text)",fontFamily:"Oswald"}}>{s1a}-{s1b} {s2a}-{s2b}{m.tbp1!==undefined&&m.tbp1!==""?` TB:${esP1?m.tbp1:m.tbp2}-${esP1?m.tbp2:m.tbp1}`:""}</span></div>}
+                    {!m.done&&m.dia&&<div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{m.code}</div>}
+                  </div>
+                  {!m.done&&<div style={{fontSize:10,color:"var(--gold)",fontWeight:700,padding:"3px 8px",background:"rgba(255,203,71,.08)",borderRadius:5,border:"1px solid rgba(255,203,71,.2)",whiteSpace:"nowrap"}}>PENDIENTE</div>}
+                </div>
+              );
+            })}
+          </div>
+          {miGrupo&&standing.length>0&&(
+            <div className="card mb16">
+              <div className="card-title">{miGrupo.nombre} — Mi posición</div>
+              {standing.map((s,i)=>{
+                const esMio=s.id===miPareja.id;
+                return(
+                  <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:8,marginBottom:4,background:esMio?"rgba(61,255,160,.08)":"transparent",border:esMio?"1px solid rgba(61,255,160,.25)":"1px solid transparent"}}>
+                    <span style={{fontFamily:"Oswald",fontWeight:700,fontSize:18,color:i===0?"var(--gold)":i===1?"var(--silver)":"var(--muted)",minWidth:24,textAlign:"center"}}>{i+1}</span>
+                    <span style={{flex:1,fontSize:13,fontWeight:esMio?700:400,color:esMio?"var(--accent)":"var(--text)"}}>{s.pair?.nombre}{esMio?" 👈":""}</span>
+                    <span style={{fontSize:11,color:"var(--muted)"}}>{s.g}G {s.per}P</span>
+                    <span style={{fontFamily:"Oswald",fontWeight:700,fontSize:15,color:"var(--gold)",minWidth:28,textAlign:"right"}}>{s.pts}</span>
+                  </div>
+                );
+              })}
+              {standing.findIndex(s=>s.id===miPareja.id)<2&&<div style={{fontSize:11,color:"var(--accent)",marginTop:10,textAlign:"center",padding:"6px",background:"rgba(61,255,160,.05)",borderRadius:6}}>✓ En zona de clasificación a llave final</div>}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const TABS=[
+  {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true},
   {id:"inscripcion",label:"👥 Inscripción",adminOnly:true},
   {id:"fixture",label:"📅 Fixture"},
   {id:"resultados",label:"⚡ Resultados"},
@@ -1124,7 +1195,7 @@ export default function App() {
   const [subview,setSubview]=useState("inscripcion");
   const [appView,setAppView]=useState("torneos");
   const [modal,setModal]=useState(null);
-  const [tForm,setTForm]=useState({nombre:"",fecha:""});
+  const [tForm,setTForm]=useState({nombre:"",edicion:"",fecha:"",catTipo:"libre",catNum:""});
   const [cForm,setCForm]=useState({nombre:""});
   const [editingName,setEditingName]=useState(false);
   const [editingNameVal,setEditingNameVal]=useState("");
@@ -1135,13 +1206,14 @@ export default function App() {
   const [showPinModal,setShowPinModal]=useState(false);
   const [showPlayerLogin,setShowPlayerLogin]=useState(false);
   const [playerLoginError,setPlayerLoginError]=useState("");
+  const [playerCedula,setPlayerCedula]=useState(null);
 
   const {db,firestore}=window;
   const {collection,doc,setDoc,getDocs,updateDoc,deleteDoc,query,where,writeBatch}=firestore;
 
   useEffect(()=>{
     const a=sessionStorage.getItem("padelbox_admin");if(a==="true"){setIsAdmin(true);return;}
-    const p=sessionStorage.getItem("padelbox_player");if(p==="true")setIsPlayer(true);
+    const p=sessionStorage.getItem("padelbox_player");if(p==="true"){setIsPlayer(true);setPlayerCedula(sessionStorage.getItem("padelbox_player_cedula"));}
   },[]);
 
   const migratePairRestrictions=(p)=>{
@@ -1182,9 +1254,9 @@ export default function App() {
   const allMatches=activeTorneo?.categorias?.flatMap(c=>c.partidos)||[];
 
   const getAllCedulas=()=>{const s=new Set();torneos.forEach(t=>t.categorias?.forEach(c=>c.parejas?.forEach(p=>{if(p.j1cedula)s.add(p.j1cedula);if(p.j2cedula)s.add(p.j2cedula);})));return s;};
-  const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){sessionStorage.setItem("padelbox_player","true");setIsPlayer(true);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
+  const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){sessionStorage.setItem("padelbox_player","true");sessionStorage.setItem("padelbox_player_cedula",cedula);setIsPlayer(true);setPlayerCedula(cedula);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
   const handleLogoutAdmin=()=>{sessionStorage.removeItem("padelbox_admin");setIsAdmin(false);};
-  const handleLogoutPlayer=()=>{sessionStorage.removeItem("padelbox_player");setIsPlayer(false);};
+  const handleLogoutPlayer=()=>{sessionStorage.removeItem("padelbox_player");sessionStorage.removeItem("padelbox_player_cedula");setIsPlayer(false);setPlayerCedula(null);};
 
   function updateCat(catId,fn){setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:t.categorias.map(c=>c.id===catId?fn(c):c)}:t));}
 
@@ -1193,57 +1265,45 @@ export default function App() {
   async function guardarPartido(p){await setDoc(doc(db,"partidos",p.id),{...p,categoriaId:activeCId});}
   async function guardarKnockout(rounds){await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rounds,knockoutGenerated:true});}
 
-  async function editarPartido(matchId, changes) {
-  let targetCat = activeCat, targetCatId = activeCId;
-  if (!targetCat?.partidos?.some(p => p.id === matchId) && !targetCat?.knockoutRounds?.flat()?.some(p => p.id === matchId)) {
-    for (const c of activeTorneo?.categorias || []) {
-      if (c.partidos?.some(p => p.id === matchId) || c.knockoutRounds?.flat()?.some(p => p.id === matchId)) {
-        targetCat = c; targetCatId = c.id; break;
+  async function editarPartido(matchId,changes){
+    let targetCat=activeCat,targetCatId=activeCId;
+    if(!targetCat?.partidos?.some(p=>p.id===matchId)&&!targetCat?.knockoutRounds?.flat()?.some(p=>p.id===matchId)){
+      for(const c of activeTorneo?.categorias||[]){
+        if(c.partidos?.some(p=>p.id===matchId)||c.knockoutRounds?.flat()?.some(p=>p.id===matchId)){targetCat=c;targetCatId=c.id;break;}
       }
     }
-  }
-  if (!targetCat) return;
-  let updated = false;
-  const pi = targetCat.partidos.findIndex(p => p.id === matchId);
-  if (pi !== -1) {
-    const np = [...targetCat.partidos];
-    np[pi] = { ...np[pi], ...changes };
-    updateCat(targetCatId, c => ({ ...c, partidos: np }));
-    const matchRef = doc(db, "partidos", matchId);
-    await updateDoc(matchRef, changes);
-    updated = true;
-  } else {
-    let nk = targetCat.knockoutRounds ? [...targetCat.knockoutRounds] : [];
-    let found = false;
-    for (let i = 0; i < nk.length; i++) {
-      const mi = nk[i].findIndex(m => m.id === matchId);
-      if (mi !== -1) { nk[i][mi] = { ...nk[i][mi], ...changes }; found = true; break; }
+    if(!targetCat)return;
+    let updated=false;
+    const pi=targetCat.partidos.findIndex(p=>p.id===matchId);
+    if(pi!==-1){
+      const np=[...targetCat.partidos];np[pi]={...np[pi],...changes};
+      updateCat(targetCatId,c=>({...c,partidos:np}));
+      await updateDoc(doc(db,"partidos",matchId),changes);updated=true;
+    } else {
+      let nk=targetCat.knockoutRounds?[...targetCat.knockoutRounds]:[];let found=false;
+      for(let i=0;i<nk.length;i++){const mi=nk[i].findIndex(m=>m.id===matchId);if(mi!==-1){nk[i][mi]={...nk[i][mi],...changes};found=true;break;}}
+      if(found){updateCat(targetCatId,c=>({...c,knockoutRounds:nk}));await updateDoc(doc(db,"categorias",targetCatId),{knockoutRounds:nk});updated=true;}
     }
-    if (found) {
-      updateCat(targetCatId, c => ({ ...c, knockoutRounds: nk }));
-      await updateDoc(doc(db, "categorias", targetCatId), { knockoutRounds: nk });
-      updated = true;
-    }
+    if(!updated)console.warn("Partido no encontrado:",matchId);
+    setModal(null);
   }
-  if (!updated) console.warn("Partido no encontrado:", matchId);
-  setModal(null);
-}
 
   async function crearTorneo(){
-    if (!tForm.nombre.trim()) return;
-    const newId=uid();const nuevo={id:newId,nombre:tForm.nombre.trim(),fecha:tForm.fecha,categorias:[]};
-    setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",fecha:""});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
-    try{await setDoc(doc(db,"torneos",newId),{id:newId,nombre:nuevo.nombre,fecha:nuevo.fecha});}catch(err){console.error(err);}
+    if(!tForm.nombre.trim())return;
+    const newId=uid();
+    const nuevo={id:newId,nombre:tForm.nombre.trim(),edicion:tForm.edicion.trim(),fecha:tForm.fecha,catTipo:tForm.catTipo,catNum:tForm.catNum,categorias:[]};
+    setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",edicion:"",fecha:"",catTipo:"libre",catNum:""});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
+    try{await setDoc(doc(db,"torneos",newId),{id:newId,nombre:nuevo.nombre,edicion:nuevo.edicion,fecha:nuevo.fecha,catTipo:nuevo.catTipo,catNum:nuevo.catNum});}catch(err){console.error(err);}
   }
 
   async function guardarNombreTorneo(){
-    if (!editingNameVal.trim()) return;
+    if(!editingNameVal.trim())return;
     await updateDoc(doc(db,"torneos",activeTId),{nombre:editingNameVal.trim()});
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,nombre:editingNameVal.trim()}:t));setEditingName(false);
   }
 
   async function crearCategoria(){
-    if (!cForm.nombre.trim()) return;
+    if(!cForm.nombre.trim())return;
     const newId=uid();
     const nueva={id:newId,nombre:cForm.nombre.trim(),parejas:[],grupos:[],partidos:[],fixtureGenerado:false,knockoutGenerated:false,knockoutRounds:[],pointsAwarded:false,torneoId:activeTId};
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:[...t.categorias,nueva]}:t));setCForm({nombre:""});setModal(null);setActiveCId(newId);
@@ -1251,8 +1311,8 @@ export default function App() {
   }
 
   async function agregarPareja(pair){
-    if (!activeCat.fixtureGenerado){updateCat(activeCId,c=>({...c,parejas:[...c.parejas,pair]}));await guardarPareja(pair);}
-    else {
+    if(!activeCat.fixtureGenerado){updateCat(activeCId,c=>({...c,parejas:[...c.parejas,pair]}));await guardarPareja(pair);}
+    else{
       const c=activeCat;
       const sizes=c.grupos.map(g=>({g,cnt:c.parejas.filter(p=>p.grupoId===g.id).length}));
       const available=sizes.filter(x=>x.cnt<3).sort((a,b)=>a.cnt-b.cnt);
@@ -1288,7 +1348,7 @@ export default function App() {
   }
 
   async function generarFixture(){
-    if (!activeCat||activeCat.parejas.length<3) return;
+    if(!activeCat||activeCat.parejas.length<3)return;
     const pairs=activeCat.parejas;const dist=calcZoneDistribution(pairs.length);
     const grupos=[];let li=0;
     for(let i=0;i<dist.zonasDe3;i++)grupos.push({id:uid(),nombre:`ZONA ${LETTERS[li++]}`});
@@ -1314,7 +1374,7 @@ export default function App() {
         raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:gIds[2],p2id:gIds[3],done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"B",zona4GrupoId:gid});
         raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:null,p2id:null,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"C",zona4GrupoId:gid});
         raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:null,p2id:null,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"D",zona4GrupoId:gid});
-      } else {
+      }else{
         roundRobin(gIds).forEach(([p1id,p2id])=>raw.push({id:uid(),type:"grupo",grupoId:g.id,p1id,p2id,code:`Z${code++}`,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:""}));
       }
     });
@@ -1329,10 +1389,10 @@ export default function App() {
   }
 
   async function generarLlave(){
-    if (!activeCat||!activeCat.fixtureGenerado) return;
+    if(!activeCat||!activeCat.fixtureGenerado)return;
     const result=calcClassified(activeCat);
-    if (!result.listo){alert(`Zonas pendientes de completar: ${result.pendientes.join(", ")}`);return;}
-    const {classified,bracketSize}=result;
+    if(!result.listo){alert(`Zonas pendientes de completar: ${result.pendientes.join(", ")}`);return;}
+    const{classified,bracketSize}=result;
     const newRounds=buildDynamicBracket(classified,bracketSize);
     const allExisting=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>c.partidos)||[];
     const scheduled=scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
@@ -1352,10 +1412,10 @@ export default function App() {
       else{if(mC)updatedC={...mC,p2id:wi};if(mD)updatedD={...mD,p2id:lo};}
     }
     updateCat(activeCId,c=>{
-      let np=c.partidos.map(p=>{if(p.id===matchId){const w=result.done?calcMatchResult({...p,...result}):null;return {...p,...result,winner:w};}return p;});
+      let np=c.partidos.map(p=>{if(p.id===matchId){const w=result.done?calcMatchResult({...p,...result}):null;return{...p,...result,winner:w};}return p;});
       if(updatedC)np=np.map(p=>p.id===updatedC.id?updatedC:p);
       if(updatedD)np=np.map(p=>p.id===updatedD.id?updatedD:p);
-      return {...c,partidos:np};
+      return{...c,partidos:np};
     });
     setModal(null);
     await updateDoc(doc(db,"partidos",matchId),result);
@@ -1376,7 +1436,7 @@ export default function App() {
   }
 
   async function otorgarPuntos(){
-    if (!activeCat||!activeTorneo)return;
+    if(!activeCat||!activeTorneo)return;
     const stages=calcPairStages(activeCat);let nuevos=[];
     setJugadores(prev=>{const nxt={...prev};
       activeCat.parejas.forEach(pair=>{
@@ -1386,7 +1446,7 @@ export default function App() {
           if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
           const already=nxt[cedula].historial.some(h=>h.torneoId===activeTId&&h.catId===activeCId);
           if(!already)nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,
-            historial:[...nxt[cedula].historial,{torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,catNombre:activeCat.nombre,stage,pts,fecha:new Date().toLocaleDateString("es-PY")}]};
+            historial:[...nxt[cedula].historial,{torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:new Date().toLocaleDateString("es-PY")}]};
         });
       });
       nuevos=Object.values(nxt);return nxt;
@@ -1394,6 +1454,14 @@ export default function App() {
     updateCat(activeCId,c=>({...c,pointsAwarded:true}));
     const batch=writeBatch(db);nuevos.forEach(j=>batch.set(doc(db,"jugadores",j.cedula),j));batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
     await batch.commit();alert("✅ Puntos guardados correctamente");
+  }
+
+  async function actualizarCategoriaJugador(cedula,categoria){
+    try{
+      const updated={...jugadores[cedula],categoria};
+      setJugadores(prev=>({...prev,[cedula]:updated}));
+      await updateDoc(doc(db,"jugadores",cedula),{categoria:categoria||null});
+    }catch(err){alert("Error al guardar categoría: "+err.message);}
   }
 
   async function eliminarJugador(cedula){try{await deleteDoc(doc(db,"jugadores",cedula));setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
@@ -1432,7 +1500,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} isAdmin={isAdmin}/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} isAdmin={isAdmin}/>:(
         <>
           <div className="hero">
             <div className="hero-title">GESTIÓN DE<br/><span>TORNEOS</span></div>
@@ -1441,9 +1509,13 @@ export default function App() {
           </div>
           {torneos.length===0?<div className="empty"><div className="empty-ico">🎾</div><p>No hay torneos creados aún</p></div>:(
             <div className="grid2">{torneos.map(t=>(
-              <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);setActiveCId(null);setSubview(isAdmin?"inscripcion":"fixture");}}>
+              <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);setActiveCId(null);setSubview(isAdmin?"inscripcion":"mitorneo");}}>
                 <div className="t-card-name">{t.nombre}</div>
-                <div className="t-card-meta">{t.fecha||"Sin fecha"} · {t.categorias.length} categoría{t.categorias.length!==1?"s":""}</div>
+                <div className="t-card-meta">{t.fecha||"Sin fecha"}{t.edicion&&` · ${t.edicion}`}</div>
+                <div className="row wrap g8" style={{marginBottom:6}}>
+                  {t.catTipo==="fijo"&&t.catNum&&<span className="badge by">{t.catNum}° Categoría</span>}
+                  {t.catTipo==="suma"&&t.catNum&&<span className="badge bb">Suma {t.catNum}</span>}
+                </div>
                 <div className="row wrap g8">{t.categorias.map(c=><span key={c.id} className="badge bb">{c.nombre}</span>)}{!t.categorias.length&&<span className="badge bx">Sin categorías</span>}</div>
                 {isAdmin&&<div className="t-card-del" onClick={e=>{e.stopPropagation();if(window.confirm("¿Eliminar este torneo?"))eliminarTorneo(t.id);}}><button className="btn btn-danger btn-xs">Eliminar</button></div>}
               </button>
@@ -1454,14 +1526,28 @@ export default function App() {
     </div>
     {modal?.type==="newT"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nuevo Torneo</div>
-      <div className="col mb12"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Torneo Apertura 2026" value={tForm.nombre} onChange={e=>setTForm(p=>({...p,nombre:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&crearTorneo()}/></div>
-      <div className="col mb16"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={e=>setTForm(p=>({...p,fecha:e.target.value}))}/></div>
+      <div className="col mb12"><label className="lbl">Nombre completo</label><input className="inp" autoFocus placeholder="ej: Torneo Aniversario Box 2026" value={tForm.nombre} onChange={e=>setTForm(p=>({...p,nombre:e.target.value}))}/></div>
+      <div className="col mb12"><label className="lbl">Identificador de edición</label><input className="inp" placeholder="ej: Torneo Aniversario (igual cada año)" value={tForm.edicion} onChange={e=>setTForm(p=>({...p,edicion:e.target.value}))}/></div>
+      <div className="col mb12"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={e=>setTForm(p=>({...p,fecha:e.target.value}))}/></div>
+      <div className="col mb12"><label className="lbl">Tipo de categoría</label>
+        <select className="inp" value={tForm.catTipo} onChange={e=>setTForm(p=>({...p,catTipo:e.target.value,catNum:""}))}>
+          <option value="libre">Libre (sin restricción)</option>
+          <option value="fijo">Categoría fija</option>
+          <option value="suma">Suma</option>
+        </select>
+      </div>
+      {tForm.catTipo!=="libre"&&<div className="col mb16"><label className="lbl">{tForm.catTipo==="fijo"?"Categoría (1-8)":"Número de suma"}</label>
+        <select className="inp" value={tForm.catNum} onChange={e=>setTForm(p=>({...p,catNum:e.target.value}))}>
+          <option value="">Seleccioná...</option>
+          {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{tForm.catTipo==="fijo"?`${n}° Categoría`:`Suma ${n}`}</option>)}
+        </select>
+      </div>}
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearTorneo}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
     </div></div>}
     {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 
-  const tabsVisibles=TABS.filter(tab=>!tab.adminOnly||(tab.adminOnly&&isAdmin));
+  const tabsVisibles=TABS.filter(tab=>{if(tab.adminOnly)return isAdmin;if(tab.playerOnly)return !isAdmin&&isPlayer;return true;});
   return(<><style>{CSS}</style><div className="app">
     <header className="hdr">
       <button className="btn btn-ghost btn-sm" onClick={()=>setActiveTId(null)}>← Torneos</button>
@@ -1483,6 +1569,7 @@ export default function App() {
       {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoría</p></div>:(
         <>
           {subview==="inscripcion"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin}/>}
+          {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
@@ -1500,10 +1587,10 @@ export default function App() {
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)}/>}
     {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)}/>}
     {modal?.type==="editMatch"&&(()=>{
-  const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
-  if(!matchCat)return null;
-  return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={[...matchCat.partidos,...(matchCat.knockoutRounds?.flat()||[])]} onSave={editarPartido} onClose={()=>setModal(null)}/>;
-})()}
+      const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
+      if(!matchCat)return null;
+      return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={[...matchCat.partidos,...(matchCat.knockoutRounds?.flat()||[])]} onSave={editarPartido} onClose={()=>setModal(null)}/>;
+    })()}
     {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 }
