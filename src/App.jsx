@@ -978,7 +978,7 @@ const CATEGORY_COLORS = [
   { bg: "rgba(100,200,255,.12)", border: "rgba(100,200,255,.4)" },
 ];
 
-function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
+function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch, onToggleBloqueo }) {
   const byId=Object.fromEntries((torneo?.categorias||[]).flatMap(c=>c.parejas||[]).map(p=>[p.id,p]));
   const matchCatMap={};const catColorMap={};
   (torneo?.categorias||[]).forEach((c,i)=>{
@@ -986,6 +986,7 @@ function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
     (c.partidos||[]).forEach(m=>{matchCatMap[m.id]=c.id;});
     (c.knockoutRounds||[]).flat().forEach(m=>{matchCatMap[m.id]=c.id;});
   });
+  const slotsBoqueados=new Set(torneo?.slotsBoqueados||[]);
   const days=[...new Set(SLOT_DEFS.map(s=>s.dia))];
   const ppd={};
   days.forEach(dia=>{ppd[dia]={};COURTS.forEach(c=>{ppd[dia][c]=[];});});
@@ -1001,7 +1002,9 @@ function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
             const color=CATEGORY_COLORS[i%CATEGORY_COLORS.length];
             return <span key={c.id} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:color.bg,border:`1px solid ${color.border}`,fontSize:12,fontWeight:600}}>{c.nombre}</span>;
           })}
+          {slotsBoqueados.size>0&&<span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:"rgba(255,51,85,.12)",border:"1px solid rgba(255,51,85,.4)",fontSize:12,fontWeight:600}}>🚫 Bloqueado ({slotsBoqueados.size})</span>}
         </div>
+        {isAdmin&&<div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>💡 Clickeá un slot libre para bloquearlo o desbloquearlo</div>}
       </div>
       {days.map(dia=>{
         const slotsDia=SLOT_DEFS.filter(s=>s.dia===dia).sort((a,b)=>a.mins-b.mins);
@@ -1015,18 +1018,31 @@ function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch }) {
                   <div className="court-hdr">{cancha}</div>
                   <div className="court-body">
                     {slotsDia.map(slot=>{
+                      const key=`${dia}|${slot.hora}|${cancha}`;
                       const partido=(ppd[dia][cancha]||[]).find(m=>m.hora===slot.hora);
                       const catId=partido?matchCatMap[partido.id]:null;
                       const color=catId?catColorMap[catId]:null;
+                      const bloqueado=slotsBoqueados.has(key);
                       return (
-                        <div key={`${dia}|${slot.hora}|${cancha}`} className="court-slot"
-                          style={{cursor:partido&&isAdmin?"pointer":"default",background:color?color.bg:"transparent",borderLeft:color?`3px solid ${color.border}`:"3px solid transparent"}}
-                          onClick={()=>partido&&isAdmin&&onEditMatch&&onEditMatch(partido)}>
+                        <div key={key} className="court-slot"
+                          style={{
+                            cursor:isAdmin?"pointer":"default",
+                            background:bloqueado?"rgba(255,51,85,.08)":color?color.bg:"transparent",
+                            borderLeft:bloqueado?"3px solid rgba(255,51,85,.5)":color?`3px solid ${color.border}`:"3px solid transparent",
+                          }}
+                          onClick={()=>{
+                            if(!isAdmin)return;
+                            if(partido){onEditMatch&&onEditMatch(partido);}
+                            else{onToggleBloqueo&&onToggleBloqueo(key);}
+                          }}>
                           {partido?(
                             <><div><div className="slot-day">{partido.dia}</div><div className="slot-time">{partido.hora}</div><div className="slot-match">{byId[partido.p1id]?.nombre||"?"} vs {byId[partido.p2id]?.nombre||"?"}</div></div>
                             <div className="col" style={{alignItems:"flex-end",gap:4}}><span className="slot-code">{partido.code}</span>{partido.done&&<span style={{fontSize:9,color:"var(--accent)"}}>✓</span>}</div></>
+                          ):bloqueado?(
+                            <><div><div className="slot-day">{dia}</div><div className="slot-time" style={{color:"var(--danger)"}}>{slot.hora}</div></div>
+                            <span style={{fontSize:11,color:"var(--danger)",fontWeight:700}}>🚫 Bloqueado</span></>
                           ):(
-                            <div style={{color:"var(--muted)",fontSize:12,padding:"4px 0"}}>{slot.hora} — Libre</div>
+                            <div style={{color:"var(--muted)",fontSize:12,padding:"4px 0",width:"100%"}}>{slot.hora} — Libre{isAdmin&&<span style={{float:"right",fontSize:10,opacity:.4}}>+ bloquear</span>}</div>
                           )}
                         </div>
                       );
@@ -1412,7 +1428,8 @@ export default function App() {
         roundRobin(gIds).forEach(([p1id,p2id])=>raw.push({id:uid(),type:"grupo",grupoId:g.id,p1id,p2id,code:`Z${code++}`,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:""}));
       }
     });
-    const om=getAllOtherMatches(activeCId);
+    const bloqueados=(activeTorneo?.slotsBoqueados||[]).map(k=>{const[dia,hora,cancha]=k.split("|");const s=SLOT_DEFS.find(x=>x.dia===dia&&x.hora===hora);return s?{dia,hora,cancha,mins:s.mins,p1id:"__bloq__",p2id:"__bloq__"}:null;}).filter(Boolean);
+    const om=[...getAllOtherMatches(activeCId),...bloqueados];
     const sched=scheduleMatches(raw.filter(m=>m.p1id&&m.p2id),om,pairMap);
     const partidos=[...sched,...raw.filter(m=>!m.p1id||!m.p2id)];
     const updatedCat={...activeCat,parejas:assignedPairs,grupos,partidos,fixtureGenerado:true,knockoutGenerated:false,knockoutRounds:[]};
@@ -1502,6 +1519,13 @@ export default function App() {
       setJugadores(prev=>({...prev,[cedula]:updated}));
       await updateDoc(doc(db,"jugadores",cedula),{categoria:categoria||null});
     }catch(err){alert("Error al guardar categoría: "+err.message);}
+  }
+
+  async function toggleBloqueoSlot(slotKey){
+    const current=activeTorneo?.slotsBoqueados||[];
+    const updated=current.includes(slotKey)?current.filter(s=>s!==slotKey):[...current,slotKey];
+    setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,slotsBoqueados:updated}:t));
+    await updateDoc(doc(db,"torneos",activeTId),{slotsBoqueados:updated});
   }
 
   async function eliminarJugador(cedula){try{await deleteDoc(doc(db,"jugadores",cedula));setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
@@ -1614,7 +1638,7 @@ export default function App() {
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
           {subview==="llave"&&<LlaveFinal cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
-          {subview==="agenda"&&isAdmin&&<AgendaView torneo={activeTorneo} allPartidos={[...allMatches,...(activeTorneo?.categorias?.flatMap(c=>c.knockoutRounds?.flat()||[])||[])]} isAdmin={isAdmin} onEditMatch={m=>setModal({type:"editMatch",match:m})}/>}
+          {subview==="agenda"&&isAdmin&&<AgendaView torneo={activeTorneo} allPartidos={[...allMatches,...(activeTorneo?.categorias?.flatMap(c=>c.knockoutRounds?.flat()||[])||[])]} isAdmin={isAdmin} onEditMatch={m=>setModal({type:"editMatch",match:m})} onToggleBloqueo={toggleBloqueoSlot}/>}
         </>
       )}
     </div>
