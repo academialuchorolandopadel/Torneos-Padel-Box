@@ -1333,12 +1333,29 @@ export default function App() {
   const [playerCedula,setPlayerCedula]=useState(null);
 
   const {db,firestore}=window;
-  const {collection,doc,setDoc,getDocs,updateDoc,deleteDoc,query,where,writeBatch}=firestore;
+  const {collection,doc,setDoc,getDocs,updateDoc,deleteDoc,query,where,writeBatch,onSnapshot}=firestore;
 
   useEffect(()=>{
     const a=sessionStorage.getItem("padelbox_admin");if(a==="true"){setIsAdmin(true);return;}
     const p=sessionStorage.getItem("padelbox_player");if(p==="true"){setIsPlayer(true);setPlayerCedula(sessionStorage.getItem("padelbox_player_cedula"));}
   },[]);
+
+  // Listener en tiempo real para sincronizar cambios entre dispositivos
+  useEffect(()=>{
+    if(!activeCId||!activeTId||!db)return;
+    const unsub=onSnapshot(doc(db,"categorias",activeCId),(snap)=>{
+      if(!snap.exists())return;
+      const data=snap.data();
+      setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:t.categorias.map(c=>c.id===activeCId?{...c,
+        knockoutRounds:data.knockoutRounds??c.knockoutRounds,
+        knockoutGenerated:data.knockoutGenerated??c.knockoutGenerated,
+        pointsAwarded:data.pointsAwarded??c.pointsAwarded,
+        fixtureGenerado:data.fixtureGenerado??c.fixtureGenerado,
+        slotsBoqueados:data.slotsBoqueados??c.slotsBoqueados,
+      }:c)}:t));
+    });
+    return ()=>unsub();
+  },[activeCId,activeTId]);
 
   const migratePairRestrictions=(p)=>{
     if (!p.restriccionesSlots&&p.restricciones){const ns=new Set();p.restricciones.forEach(b=>{(BLOQUE_TO_SLOTS[b]||[]).forEach(s=>ns.add(s));});return {...p,restriccionesSlots:Array.from(ns),restricciones:undefined};}
@@ -1385,7 +1402,10 @@ export default function App() {
   async function guardarCategoria(cat){const{parejas,partidos,...rest}=cat;await setDoc(doc(db,"categorias",cat.id),{...rest,torneoId:activeTId});}
   async function guardarPareja(p){const ts={...p,categoriaId:activeCId};delete ts.restricciones;if(ts.j1===undefined)delete ts.j1;if(ts.j2===undefined)delete ts.j2;await setDoc(doc(db,"parejas",p.id),ts);}
   async function guardarPartido(p){await setDoc(doc(db,"partidos",p.id),{...p,categoriaId:activeCId});}
-  async function guardarKnockout(rounds){await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rounds,knockoutGenerated:true});}
+  async function guardarKnockout(rounds){
+    try{await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rounds,knockoutGenerated:true});}
+    catch(err){console.error("Error guardando resultado KO:",err);alert("⚠️ Error al guardar: "+err.message);}
+  }
 
   async function editarPartido(matchId,changes){
     let targetCat=activeCat,targetCatId=activeCId;
@@ -1549,7 +1569,13 @@ export default function App() {
     const allExisting=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])])||[];
     const scheduled=scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:scheduled,knockoutGenerated:true}));
-    await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:scheduled,knockoutGenerated:true});
+    try{
+      await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:scheduled,knockoutGenerated:true});
+    }catch(err){
+      console.error("Error guardando llave:",err);
+      alert("⚠️ Error al guardar la llave en Firestore: "+err.message+"
+Verificá tu conexión e intentá de nuevo.");
+    }
   }
 
   async function guardarResultado(matchId,result){
@@ -1649,7 +1675,12 @@ export default function App() {
       if(loc&&oldP2id){if(loc.pos==='p1'){loc.m.p1id=oldP2id;loc.m.p1label=oldP2label;}else{loc.m.p2id=oldP2id;loc.m.p2label=oldP2label;}}
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nk}));
-    await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:nk});
+    try{
+      await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:nk});
+    }catch(err){
+      console.error("Error guardando cruce:",err);
+      alert("⚠️ Error al guardar: "+err.message);
+    }
     setModal(null);
   }
 
