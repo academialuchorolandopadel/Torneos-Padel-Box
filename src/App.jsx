@@ -1359,6 +1359,14 @@ export default function App() {
             cat.parejas=ps.docs.map(d=>migratePairRestrictions({id:d.id,...d.data()}));
             const ms=await getDocs(query(collection(db,"partidos"),where("categoriaId","==",cat.id)));
             cat.partidos=ms.docs.map(d=>({id:d.id,...d.data()}));
+            if(cat.knockoutMatchesFlat&&cat.knockoutMatchesFlat.length>0){
+              const rounds=[];
+              cat.knockoutMatchesFlat.forEach(m=>{
+                if(!rounds[m.round])rounds[m.round]=[];
+                rounds[m.round][m.slot]=m;
+              });
+              cat.knockoutRounds=rounds.map(r=>(r||[]).filter(Boolean));
+            }else{cat.knockoutRounds=cat.knockoutRounds||[];}
             return cat;
           }));
           return {...t,categorias:cats};
@@ -1383,11 +1391,11 @@ export default function App() {
 
   function updateCat(catId,fn){setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:t.categorias.map(c=>c.id===catId?fn(c):c)}:t));}
 
-  async function guardarCategoria(cat){const{parejas,partidos,...rest}=cat;await setDoc(doc(db,"categorias",cat.id),{...rest,torneoId:activeTId});}
+  async function guardarCategoria(cat){const{parejas,partidos,knockoutRounds:kr,...rest}=cat;await setDoc(doc(db,"categorias",cat.id),{...rest,knockoutMatchesFlat:(kr||[]).flat(),torneoId:activeTId});}
   async function guardarPareja(p){const ts={...p,categoriaId:activeCId};delete ts.restricciones;if(ts.j1===undefined)delete ts.j1;if(ts.j2===undefined)delete ts.j2;await setDoc(doc(db,"parejas",p.id),ts);}
   async function guardarPartido(p){await setDoc(doc(db,"partidos",p.id),{...p,categoriaId:activeCId});}
   async function guardarKnockout(rounds){
-    try{await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rounds,knockoutGenerated:true});}
+    try{await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:rounds.flat(),knockoutGenerated:true});}
     catch(err){console.error("Error guardando resultado KO:",err);alert("Error al guardar: "+err.message);}
   }
 
@@ -1408,7 +1416,7 @@ export default function App() {
     } else {
       let nk=targetCat.knockoutRounds?[...targetCat.knockoutRounds]:[];let found=false;
       for(let i=0;i<nk.length;i++){const mi=nk[i].findIndex(m=>m.id===matchId);if(mi!==-1){nk[i][mi]={...nk[i][mi],...changes};found=true;break;}}
-      if(found){updateCat(targetCatId,c=>({...c,knockoutRounds:nk}));await updateDoc(doc(db,"categorias",targetCatId),{knockoutRounds:nk});updated=true;}
+      if(found){updateCat(targetCatId,c=>({...c,knockoutRounds:nk}));await updateDoc(doc(db,"categorias",targetCatId),{knockoutMatchesFlat:nk.flat()});updated=true;}
     }
     if(!updated)console.warn("Partido no encontrado:",matchId);
     setModal(null);
@@ -1440,7 +1448,7 @@ export default function App() {
     ];
     const rescheduled=scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:rescheduled}));
-    await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rescheduled});
+    await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:rescheduled.flat()});
   }
 
   async function crearTorneo(){
@@ -1554,7 +1562,7 @@ export default function App() {
     const scheduled=scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:scheduled,knockoutGenerated:true}));
     try{
-      await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:scheduled,knockoutGenerated:true});
+      await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:scheduled.flat(),knockoutGenerated:true});
     }catch(err){
       console.error("Error guardando llave:",err);
       alert("Error al guardar la llave: "+err.message);
@@ -1659,7 +1667,7 @@ export default function App() {
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nk}));
     try{
-      await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:nk});
+      await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:nk.flat()});
     }catch(err){
       console.error("Error guardando cruce:",err);
       alert("Error al guardar: "+err.message);
