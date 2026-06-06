@@ -676,7 +676,7 @@ function EditMatchModal({ match, cat, allPartidos, onSave, onClose }) {
 }
 
 function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }) {
-  if (!cat||!cat.parejas||!cat.grupos) return <div className="empty">Cargando datos de la categoría...</div>;
+  if (!cat||!cat.parejas||!cat.grupos) return <div className="empty">Cargando datos de la categoria...</div>;
   const empty={nombre:"",j1nombre:"",j1cedula:"",j2nombre:"",j2cedula:""};
   const [form,setForm]=useState(empty);const [showAdd,setShowAdd]=useState(true);
   const gName=Object.fromEntries(cat.grupos.map(g=>[g.id,g.nombre]));
@@ -1139,7 +1139,7 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, isAdmin 
                   {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{CAT_LABELS[n]}</option>)}
                 </select>
               ):(
-                <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Editar categoría">🏷️</button>
+                <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Editar categoria">🏷️</button>
               ))}
               <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
             </div>
@@ -1188,7 +1188,7 @@ function MiTorneo({ torneo, playerCedula }) {
     const miStage=stages[miPareja.id];
     misData.push({cat,miPareja,misPartidos,misKO,miGrupo,standing,byId,miStage});
   });
-  if(misData.length===0)return<div className="empty"><div className="empty-ico">🎾</div><p>No estás inscripto en ninguna categoría de este torneo</p></div>;
+  if(misData.length===0)return<div className="empty"><div className="empty-ico">🎾</div><p>No estás inscripto en ninguna categoria de este torneo</p></div>;
   return(
     <div>
       {misData.map(({cat,miPareja,misPartidos,misKO,miGrupo,standing,byId,miStage})=>(
@@ -1404,7 +1404,7 @@ export default function App() {
   async function guardarPartido(p){await setDoc(doc(db,"partidos",p.id),{...p,categoriaId:activeCId});}
   async function guardarKnockout(rounds){
     try{await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:rounds,knockoutGenerated:true});}
-    catch(err){console.error("Error guardando resultado KO:",err);alert("⚠️ Error al guardar: "+err.message);}
+    catch(err){console.error("Error guardando resultado KO:",err);alert("Error al guardar: "+err.message);}
   }
 
   async function editarPartido(matchId,changes){
@@ -1573,8 +1573,7 @@ export default function App() {
       await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:scheduled,knockoutGenerated:true});
     }catch(err){
       console.error("Error guardando llave:",err);
-      alert("⚠️ Error al guardar la llave en Firestore: "+err.message+"
-Verificá tu conexión e intentá de nuevo.");
+      alert("Error al guardar la llave: "+err.message);
     }
   }
 
@@ -1645,7 +1644,7 @@ Verificá tu conexión e intentá de nuevo.");
       const updated={...jugadores[cedula],categoria};
       setJugadores(prev=>({...prev,[cedula]:updated}));
       await updateDoc(doc(db,"jugadores",cedula),{categoria:categoria||null});
-    }catch(err){alert("Error al guardar categoría: "+err.message);}
+    }catch(err){alert("Error al guardar categoria: "+err.message);}
   }
 
   async function toggleBloqueoSlot(slotKey){
@@ -1679,7 +1678,7 @@ Verificá tu conexión e intentá de nuevo.");
       await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:nk});
     }catch(err){
       console.error("Error guardando cruce:",err);
-      alert("⚠️ Error al guardar: "+err.message);
+      alert("Error al guardar: "+err.message);
     }
     setModal(null);
   }
@@ -1739,7 +1738,7 @@ Verificá tu conexión e intentá de nuevo.");
                   {t.catTipo==="fijo"&&t.catNum&&<span className="badge by">{t.catNum}° Categoría</span>}
                   {t.catTipo==="suma"&&t.catNum&&<span className="badge bb">Suma {t.catNum}</span>}
                 </div>
-                <div className="row wrap g8">{t.categorias.map(c=><span key={c.id} className="badge bb">{c.nombre}</span>)}{!t.categorias.length&&<span className="badge bx">Sin categorías</span>}</div>
+                <div className="row wrap g8">{t.categorias.map(c=><span key={c.id} className="badge bb">{c.nombre}</span>)}{!t.categorias.length&&<span className="badge bx">Sin categorias</span>}</div>
                 {isAdmin&&<div className="t-card-del" onClick={e=>{e.stopPropagation();if(window.confirm("¿Eliminar este torneo?"))eliminarTorneo(t.id);}}><button className="btn btn-danger btn-xs">Eliminar</button></div>}
               </button>
             ))}</div>
@@ -1752,7 +1751,7 @@ Verificá tu conexión e intentá de nuevo.");
       <div className="col mb12"><label className="lbl">Nombre completo</label><input className="inp" autoFocus placeholder="ej: Torneo Aniversario Box 2026" value={tForm.nombre} onChange={e=>setTForm(p=>({...p,nombre:e.target.value}))}/></div>
       <div className="col mb12"><label className="lbl">Identificador de edición</label><input className="inp" placeholder="ej: Torneo Aniversario (igual cada año)" value={tForm.edicion} onChange={e=>setTForm(p=>({...p,edicion:e.target.value}))}/></div>
       <div className="col mb12"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={e=>setTForm(p=>({...p,fecha:e.target.value}))}/></div>
-      <div className="col mb12"><label className="lbl">Tipo de categoría</label>
+      <div className="col mb12"><label className="lbl">Tipo de categoria</label>
         <select className="inp" value={tForm.catTipo} onChange={e=>setTForm(p=>({...p,catTipo:e.target.value,catNum:""}))}>
           <option value="libre">Libre (sin restricción)</option>
           <option value="fijo">Categoría fija</option>
@@ -1790,7 +1789,7 @@ Verificá tu conexión e intentá de nuevo.");
         {activeTorneo?.categorias?.map(c=><button key={c.id} className={`cat-tab${activeCId===c.id?" on":""}`} onClick={()=>setActiveCId(c.id)}>{c.nombre}</button>)}
         {isAdmin&&<button className="cat-tab add" onClick={()=>setModal({type:"newC"})}>+ Categoría</button>}
       </div>
-      {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoría</p></div>:(
+      {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
           {subview==="inscripcion"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
