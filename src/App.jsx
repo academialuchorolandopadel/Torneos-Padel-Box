@@ -1186,12 +1186,12 @@ function MiTorneo({ torneo, playerCedula }) {
     const standing=miGrupo?calcStandings(zonaIds,cat.parejas,(cat.partidos||[]).filter(m=>m.grupoId===miPareja.grupoId)):[];
     const stages=cat.knockoutGenerated?calcPairStages(cat):{};
     const miStage=stages[miPareja.id];
-    misData.push({cat,miPareja,misPartidos,miGrupo,standing,byId,miStage});
+    misData.push({cat,miPareja,misPartidos,misKO,miGrupo,standing,byId,miStage});
   });
   if(misData.length===0)return<div className="empty"><div className="empty-ico">🎾</div><p>No estás inscripto en ninguna categoría de este torneo</p></div>;
   return(
     <div>
-      {misData.map(({cat,miPareja,misPartidos,miGrupo,standing,byId,miStage})=>(
+      {misData.map(({cat,miPareja,misPartidos,misKO,miGrupo,standing,byId,miStage})=>(
         <div key={cat.id}>
           <div className="sec-hdr">
             <div className="sec-title">{cat.nombre}</div>
@@ -1324,6 +1324,7 @@ export default function App() {
   const [editingNameVal,setEditingNameVal]=useState("");
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState(null);
+  const [refreshing,setRefreshing]=useState(false);
   const [isAdmin,setIsAdmin]=useState(false);
   const [isPlayer,setIsPlayer]=useState(false);
   const [showPinModal,setShowPinModal]=useState(false);
@@ -1344,10 +1345,9 @@ export default function App() {
     return p;
   };
 
-  useEffect(()=>{
-    const loadData=async()=>{
-      try {
-        setLoading(true);
+  const loadData=async(isRefresh=false)=>{
+    try {
+      if(isRefresh)setRefreshing(true);else setLoading(true);
         const ts=await getDocs(collection(db,"torneos"));
         const td=ts.docs.map(d=>({id:d.id,...d.data()}));
         const tc=await Promise.all(td.map(async t=>{
@@ -1367,10 +1367,9 @@ export default function App() {
         const jugs={};js.docs.forEach(d=>{jugs[d.id]={cedula:d.id,...d.data()};});
         setJugadores(jugs);setError(null);
       } catch(err){console.error(err);setError(err.message);}
-      finally{setLoading(false);}
-    };
-    loadData();
-  },[]);
+      finally{if(isRefresh)setRefreshing(false);else setLoading(false);}
+  };
+  useEffect(()=>{loadData();},[]);
 
   const activeTorneo=torneos.find(t=>t.id===activeTId);
   const activeCat=activeTorneo?.categorias?.find(c=>c.id===activeCId);
@@ -1752,7 +1751,8 @@ export default function App() {
         )}
       </div>
       <div className="nav-tabs" style={{marginLeft:"auto"}}>{tabsVisibles.map(tab=><button key={tab.id} className={`nav-tab${subview===tab.id?" on":""}`} onClick={()=>setSubview(tab.id)}>{tab.label}</button>)}</div>
-      {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
+      <button className="btn btn-ghost btn-xs" onClick={()=>loadData(true)} disabled={refreshing} style={{marginLeft:4}}>{refreshing?"⏳":"🔄"}</button>
+      {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:4}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:4}}>👤 Salir</button>}
     </header>
     <div className="main">
       <div className="cat-tabs">
