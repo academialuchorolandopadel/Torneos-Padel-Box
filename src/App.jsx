@@ -241,6 +241,23 @@ function buildDynamicBracket(classified, bracketSize) {
     }
     if (!placed) { for (let i=0;i<bracketSize;i++) { if (slots[i]===null) { slots[i]=t; break; } } }
   });
+  // Post-proceso: corregir cruces de primera ronda entre parejas de la misma zona
+  for (let i=0;i<bracketSize;i+=2) {
+    if (!slots[i]||!slots[i+1]||slots[i].grupo!==slots[i+1].grupo) continue;
+    // Hay conflicto de zona en este cruce — intentar swap con otro slot
+    for (let j=0;j<bracketSize;j++) {
+      if (j===i||j===i+1||!slots[j]) continue;
+      if (slots[j].grupo===slots[i].grupo) continue; // El candidato no puede ser de la misma zona
+      const jPair=j%2===0?j+1:j-1;
+      const jPartner=slots[jPair];
+      // Swap slots[i+1] con slots[j] si no crea un nuevo conflicto
+      if (!jPartner||jPartner.grupo!==slots[i+1].grupo) {
+        const tmp=slots[i+1]; slots[i+1]=slots[j]; slots[j]=tmp;
+        break;
+      }
+    }
+  }
+
   // Construir rondas
   const rounds=[];
   const r0=[];
@@ -895,7 +912,7 @@ function Posiciones({ cat }) {
   );
 }
 
-function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch }) {
+function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch, onEditKOPair }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   const zonaStatus=cat.fixtureGenerado?cat.grupos.map(g=>{
     const partidos=cat.partidos.filter(m=>m.grupoId===g.id&&m.p1id&&m.p2id&&m.zona4Tipo!=="C"&&m.zona4Tipo!=="D");
@@ -958,14 +975,20 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
                     return (
                       <div key={m.id} className={`br-match${m.done?" done":""}`} onClick={()=>canPlay&&onOpen(m)} style={{cursor:canPlay?'pointer':'default',opacity:m.auto?0.5:1}}>
                         <div className={`br-team${!p1?" tbd":m.done&&m.winner===m.p1id?" win":""}`}>
-                          <span style={{display:"flex",alignItems:"center",gap:4,flex:1}}>{p1?p1.nombre:m.p1label||"TBD"}{m.p1provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
+                          <span style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
+                            <span style={{display:"flex",alignItems:"center",gap:4}}>{p1?p1.nombre:m.p1label||"TBD"}{m.p1provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
+                            {p1&&m.p1label&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5}}>{m.p1label}</span>}
+                          </span>
                           {m.done&&!m.auto&&<span className="br-score">{m.s1p1} {m.s2p1}</span>}
                         </div>
                         <div className={`br-team${!p2?" tbd":m.done&&m.winner===m.p2id?" win":""}`}>
-                          <span style={{display:"flex",alignItems:"center",gap:4,flex:1}}>{p2?p2.nombre:m.p2label||"TBD"}{m.p2provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
+                          <span style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
+                            <span style={{display:"flex",alignItems:"center",gap:4}}>{p2?p2.nombre:m.p2label||"TBD"}{m.p2provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
+                            {p2&&m.p2label&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5}}>{m.p2label}</span>}
+                          </span>
                           {m.done&&!m.auto&&<span className="br-score">{m.s1p2} {m.s2p2}</span>}
                         </div>
-                        {m.dia&&m.hora&&m.cancha&&!m.auto&&<div className="br-schedule">{m.dia} {m.hora} · {m.cancha}{isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}</div>}
+                        {m.dia&&m.hora&&m.cancha&&!m.auto&&<div className="br-schedule">{m.dia} {m.hora} · {m.cancha}{isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}{isAdmin&&!m.done&&<button className="btn btn-ghost btn-xs" style={{marginLeft:4}} onClick={e=>{e.stopPropagation();onEditKOPair&&onEditKOPair(m);}}>👥</button>}</div>}
                       </div>
                     );
                   })}
@@ -1222,6 +1245,31 @@ function MiTorneo({ torneo, playerCedula }) {
   );
 }
 
+function EditKOPairModal({ match, cat, onSave, onClose }) {
+  const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
+  const [p1id,setP1id]=useState(match.p1id||"");
+  const [p2id,setP2id]=useState(match.p2id||"");
+  return (
+    <div className="overlay" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
+      <div className="modal-title">Editar Parejas del Cruce</div>
+      <div className="match-info"><div className="match-meta">{match.p1label||"Equipo 1"} vs {match.p2label||"Equipo 2"}</div></div>
+      <div className="col mb12"><label className="lbl">Equipo superior</label>
+        <select className="inp" value={p1id} onChange={e=>setP1id(e.target.value)}>
+          <option value="">Sin asignar</option>
+          {cat.parejas.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+      </div>
+      <div className="col mb16"><label className="lbl">Equipo inferior</label>
+        <select className="inp" value={p2id} onChange={e=>setP2id(e.target.value)}>
+          <option value="">Sin asignar</option>
+          {cat.parejas.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+      </div>
+      <div className="row g8"><button className="btn btn-primary f1" onClick={()=>onSave(match.id,{p1id:p1id||null,p2id:p2id||null})}>Guardar</button><button className="btn btn-ghost" onClick={onClose}>Cancelar</button></div>
+    </div></div>
+  );
+}
+
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true},
   {id:"inscripcion",label:"👥 Inscripción",adminOnly:true},
@@ -1354,7 +1402,7 @@ export default function App() {
     }
     const playedKO=finalRounds.flat().filter(m=>m.done&&!m.auto&&m.dia);
     const allExisting=[
-      ...(torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>c.partidos)||[]),
+      ...(torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.id===activeCId?[]:(c.knockoutRounds?.flat()||[]))])||[]),
       ...playedKO
     ];
     const rescheduled=scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
@@ -1469,7 +1517,7 @@ export default function App() {
     if(!result.classified?.length){alert("No hay suficientes datos para generar la llave");return;}
     const{classified,bracketSize}=result;
     const newRounds=buildDynamicBracket(classified,bracketSize);
-    const allExisting=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>c.partidos)||[];
+    const allExisting=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])])||[];
     const scheduled=scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:scheduled,knockoutGenerated:true}));
     await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:scheduled,knockoutGenerated:true});
@@ -1510,7 +1558,7 @@ export default function App() {
     let nr=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...result,winner,done:!!result.done}:m));
     if(winner){
       nr.forEach((round,ri)=>{round.forEach(m=>{if(!m.prevIds?.length)return;if(m.prevIds[0]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p1id:winner}:nm);if(m.prevIds[1]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p2id:winner}:nm);});});
-      const allEx=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>c.partidos)||[];
+      const allEx=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.id===activeCId?[]:(c.knockoutRounds?.flat()||[]))])||[];
       nr=scheduleKnockoutMatches(nr,allEx,activeCat.parejas);
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nr}));setModal(null);await guardarKnockout(nr);
@@ -1550,6 +1598,13 @@ export default function App() {
     const updated=current.includes(slotKey)?current.filter(s=>s!==slotKey):[...current,slotKey];
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,slotsBoqueados:updated}:t));
     await updateDoc(doc(db,"torneos",activeTId),{slotsBoqueados:updated});
+  }
+
+  async function editarParejaCruce(matchId,changes){
+    let nk=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...changes}:m));
+    updateCat(activeCId,c=>({...c,knockoutRounds:nk}));
+    await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:nk});
+    setModal(null);
   }
 
   async function eliminarJugador(cedula){try{await deleteDoc(doc(db,"jugadores",cedula));setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
@@ -1661,7 +1716,7 @@ export default function App() {
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
-          {subview==="llave"&&<LlaveFinal cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
+          {subview==="llave"&&<LlaveFinal cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
           {subview==="agenda"&&isAdmin&&<AgendaView torneo={activeTorneo} allPartidos={[...allMatches,...(activeTorneo?.categorias?.flatMap(c=>c.knockoutRounds?.flat()||[])||[])]} isAdmin={isAdmin} onEditMatch={m=>setModal({type:"editMatch",match:m})} onToggleBloqueo={toggleBloqueoSlot}/>}
         </>
       )}
@@ -1674,6 +1729,7 @@ export default function App() {
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)}/>}
     {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)}/>}
+    {modal?.type==="editKOPair"&&activeCat&&<EditKOPairModal match={modal.match} cat={activeCat} onSave={editarParejaCruce} onClose={()=>setModal(null)}/>}
     {modal?.type==="editMatch"&&(()=>{
       const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
       if(!matchCat)return null;
