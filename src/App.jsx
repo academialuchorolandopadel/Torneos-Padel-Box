@@ -1175,10 +1175,12 @@ function MiTorneo({ torneo, playerCedula }) {
     const miPareja=cat.parejas?.find(p=>p.j1cedula===playerCedula||p.j2cedula===playerCedula);
     if(!miPareja)return;
     const byId=Object.fromEntries((cat.parejas||[]).map(p=>[p.id,p]));
-    const misPartidos=[
-      ...(cat.partidos||[]).filter(m=>m.p1id===miPareja.id||m.p2id===miPareja.id),
-      ...(cat.knockoutRounds||[]).flat().filter(m=>m.p1id===miPareja.id||m.p2id===miPareja.id)
-    ].filter(m=>m.p1id&&m.p2id).sort((a,b)=>(a.mins||0)-(b.mins||0));
+    const misPartidos=(cat.partidos||[]).filter(m=>(m.p1id===miPareja.id||m.p2id===miPareja.id)&&m.p1id&&m.p2id).sort((a,b)=>(a.mins||0)-(b.mins||0));
+    const roundNames=getRoundNames(cat.knockoutRounds);
+    const misKO=(cat.knockoutRounds||[]).map((round,ri)=>{
+      const m=round.find(m=>!m.auto&&(m.p1id===miPareja.id||m.p2id===miPareja.id));
+      return m?{m,roundName:roundNames[ri]||`Ronda ${ri+1}`}:null;
+    }).filter(Boolean);
     const miGrupo=cat.grupos?.find(g=>g.id===miPareja.grupoId);
     const zonaIds=(cat.parejas||[]).filter(p=>p.grupoId===miPareja.grupoId).map(p=>p.id);
     const standing=miGrupo?calcStandings(zonaIds,cat.parejas,(cat.partidos||[]).filter(m=>m.grupoId===miPareja.grupoId)):[];
@@ -1222,6 +1224,34 @@ function MiTorneo({ torneo, playerCedula }) {
               );
             })}
           </div>
+          {cat.knockoutGenerated&&misKO.length>0&&(
+            <div className="card mb16">
+              <div className="card-title">🏆 Llave Final</div>
+              {misKO.map(({m,roundName})=>{
+                const rival=m.p1id===miPareja.id?byId[m.p2id]:byId[m.p1id];
+                const esP1=m.p1id===miPareja.id;
+                const gane=m.done&&m.winner===miPareja.id;
+                const s1a=esP1?m.s1p1:m.s1p2,s1b=esP1?m.s1p2:m.s1p1;
+                const s2a=esP1?m.s2p1:m.s2p2,s2b=esP1?m.s2p2:m.s2p1;
+                return(
+                  <div key={m.id} style={{background:m.done?(gane?"rgba(61,255,160,.06)":"rgba(255,51,85,.04)"):"var(--bg3)",border:`1px solid ${m.done?(gane?"rgba(61,255,160,.3)":"rgba(255,51,85,.2)"):"rgba(0,212,255,.2)"}`,borderRadius:10,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{textAlign:"center",minWidth:60}}>
+                      <div style={{fontSize:9,fontWeight:700,color:"var(--accent2)",letterSpacing:1,textTransform:"uppercase"}}>{roundName}</div>
+                      <div style={{fontFamily:"Oswald",fontSize:18,fontWeight:700,color:"var(--text)",lineHeight:1.2}}>{m.dia?m.dia.slice(0,3):"—"}</div>
+                      <div style={{fontFamily:"Oswald",fontSize:14,fontWeight:600,color:"var(--muted)"}}>{m.hora||"—"}</div>
+                      <div style={{fontSize:9,color:"var(--muted)"}}>{m.cancha||""}</div>
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:10,color:"var(--muted)",marginBottom:2,letterSpacing:1,textTransform:"uppercase"}}>vs</div>
+                      <div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{rival?.nombre||"Por definir"}</div>
+                      {m.done&&<div style={{fontSize:12,fontWeight:700,marginTop:4,color:gane?"var(--accent)":"var(--danger)"}}>{gane?"✓ Ganado":"✗ Perdido"} <span style={{color:"var(--text)",fontFamily:"Oswald"}}>{s1a}-{s1b} {s2a}-{s2b}{m.tbp1!==undefined&&m.tbp1!==""?` TB:${esP1?m.tbp1:m.tbp2}-${esP1?m.tbp2:m.tbp1}`:""}</span></div>}
+                    </div>
+                    {!m.done&&<div style={{fontSize:10,color:"var(--accent2)",fontWeight:700,padding:"3px 8px",background:"rgba(0,212,255,.08)",borderRadius:5,border:"1px solid rgba(0,212,255,.2)",whiteSpace:"nowrap"}}>PRÓXIMO</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {miGrupo&&standing.length>0&&(
             <div className="card mb16">
               <div className="card-title">{miGrupo.nombre} — Mi posición</div>
@@ -1600,8 +1630,25 @@ export default function App() {
     await updateDoc(doc(db,"torneos",activeTId),{slotsBoqueados:updated});
   }
 
-  async function editarParejaCruce(matchId,changes){
-    let nk=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...changes}:m));
+  async function editarParejaCruce(matchId,{p1id:newP1id,p2id:newP2id}){
+    let nk=activeCat.knockoutRounds.map(r=>r.map(m=>({...m})));
+    const target=nk.flat().find(m=>m.id===matchId);
+    if(!target)return;
+    const findPair=(pid)=>{for(const round of nk){for(const m of round){if(m.p1id===pid)return{m,pos:'p1'};if(m.p2id===pid)return{m,pos:'p2'};}}return null;};
+    if(newP1id!==target.p1id){
+      const oldP1id=target.p1id,oldP1label=target.p1label;
+      const loc=findPair(newP1id);
+      const newLabel=loc?(loc.pos==='p1'?loc.m.p1label:loc.m.p2label):target.p1label;
+      target.p1id=newP1id;target.p1label=newLabel;
+      if(loc&&oldP1id){if(loc.pos==='p1'){loc.m.p1id=oldP1id;loc.m.p1label=oldP1label;}else{loc.m.p2id=oldP1id;loc.m.p2label=oldP1label;}}
+    }
+    if(newP2id!==target.p2id){
+      const oldP2id=target.p2id,oldP2label=target.p2label;
+      const loc=findPair(newP2id);
+      const newLabel=loc?(loc.pos==='p1'?loc.m.p1label:loc.m.p2label):target.p2label;
+      target.p2id=newP2id;target.p2label=newLabel;
+      if(loc&&oldP2id){if(loc.pos==='p1'){loc.m.p1id=oldP2id;loc.m.p1label=oldP2label;}else{loc.m.p2id=oldP2id;loc.m.p2label=oldP2label;}}
+    }
     updateCat(activeCId,c=>({...c,knockoutRounds:nk}));
     await updateDoc(doc(db,"categorias",activeCId),{knockoutRounds:nk});
     setModal(null);
@@ -1652,7 +1699,10 @@ export default function App() {
           </div>
           {torneos.length===0?<div className="empty"><div className="empty-ico">🎾</div><p>No hay torneos creados aún</p></div>:(
             <div className="grid2">{torneos.map(t=>(
-              <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);setActiveCId(null);setSubview(isAdmin?"inscripcion":"mitorneo");}}>
+              <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);
+                const autocat=(!isAdmin&&isPlayer&&playerCedula)?t.categorias?.find(c=>c.parejas?.some(p=>p.j1cedula===playerCedula||p.j2cedula===playerCedula)):null;
+                setActiveCId(autocat?.id||null);
+                setSubview(isAdmin?"inscripcion":"mitorneo");}}>
                 <div className="t-card-name">{t.nombre}</div>
                 <div className="t-card-meta">{t.fecha||"Sin fecha"}{t.edicion&&` · ${t.edicion}`}</div>
                 <div className="row wrap g8" style={{marginBottom:6}}>
