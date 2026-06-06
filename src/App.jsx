@@ -279,9 +279,15 @@ function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas) {
     if (m.mins==null) return;
     [m.p1id,m.p2id].forEach(pid=>{ if(pid){pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(m.mins);} });
   });
+  // Último partido de zona: KO debe comenzar después
+  const maxZoneMins=existingMatches.filter(m=>m.mins!=null&&m.p1id!=="__bloq__").reduce((mx,m)=>Math.max(mx,m.mins),0);
   const programar = (m) => {
-    const slotsDesc = [...ALL_SLOTS].sort((a,b)=>a.mins-b.mins);
-    for (const slot of slotsDesc) {
+    // Primero slots DESPUÉS del último partido de zona (ascendente), luego el resto como fallback
+    const slotsOrdered=[
+      ...[...ALL_SLOTS].filter(s=>s.mins>maxZoneMins).sort((a,b)=>a.mins-b.mins),
+      ...[...ALL_SLOTS].filter(s=>s.mins<=maxZoneMins).sort((a,b)=>a.mins-b.mins)
+    ];
+    for (const slot of slotsOrdered) {
       const key=`${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (occupied.has(key)) continue;
       const allTimes=[...(pairMins[m.p1id]||[]),...(pairMins[m.p2id]||[])];
@@ -292,7 +298,7 @@ function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas) {
       }
       if (ok) { occupied.add(key); [m.p1id,m.p2id].forEach(pid=>{pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(slot.mins);}); return {...m,...slot}; }
     }
-    for (const slot of slotsDesc) {
+    for (const slot of slotsOrdered) {
       const key=`${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (!occupied.has(key)) { occupied.add(key); [m.p1id,m.p2id].forEach(pid=>{pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(slot.mins);}); return {...m,...slot,conflict:true}; }
     }
