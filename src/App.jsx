@@ -280,7 +280,7 @@ function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas) {
     [m.p1id,m.p2id].forEach(pid=>{ if(pid){pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(m.mins);} });
   });
   const programar = (m) => {
-    const slotsDesc = [...ALL_SLOTS].sort((a,b)=>b.mins-a.mins);
+    const slotsDesc = [...ALL_SLOTS].sort((a,b)=>a.mins-b.mins);
     for (const slot of slotsDesc) {
       const key=`${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (occupied.has(key)) continue;
@@ -326,13 +326,15 @@ function calcPairStages(cat) {
 
 function getKnockoutWithSchedules(knockoutRounds, existingMatches, parejas) {
   if (!knockoutRounds||!knockoutRounds.length) return knockoutRounds;
-  const allMatches=knockoutRounds.flat().filter(m=>!m.auto&&m.p1id&&m.p2id);
+  // Solo programar partidos que no tienen dia asignado (respetar ediciones manuales)
+  const allMatches=knockoutRounds.flat().filter(m=>!m.auto&&m.p1id&&m.p2id&&!m.dia);
   if (allMatches.length===0) return knockoutRounds;
   const pairMap=Object.fromEntries(parejas.map(p=>[p.id,p]));
   const scheduled=scheduleMatches(allMatches,existingMatches,pairMap,true);
   const scheduledMap=new Map(scheduled.map(m=>[m.id,m]));
   return knockoutRounds.map(round=>round.map(m=>{
     if (m.auto) return m;
+    if (m.dia) return m; // Ya tiene horario asignado, respetar
     const s=scheduledMap.get(m.id);
     return s?{...m,...s}:m;
   }));
