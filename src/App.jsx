@@ -279,6 +279,14 @@ function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas) {
     if (m.mins==null) return;
     [m.p1id,m.p2id].forEach(pid=>{ if(pid){pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(m.mins);} });
   });
+  // Restricciones por pareja (igual que en scheduleMatches)
+  const pairMap=Object.fromEntries(parejas.map(p=>[p.id,p]));
+  const pairRestrSets={};
+  for (const pid of Object.keys(pairMap)) pairRestrSets[pid]=new Set(pairMap[pid]?.restriccionesSlots||[]);
+  const isRestricted=(slot,p1id,p2id)=>{
+    const key=`${slot.dia}|${slot.hora}`;
+    return !!(p1id&&pairRestrSets[p1id]?.has(key))||(p2id&&pairRestrSets[p2id]?.has(key));
+  };
   // Último partido de zona: KO debe comenzar después
   const maxZoneMins=existingMatches.filter(m=>m.mins!=null&&m.p1id!=="__bloq__").reduce((mx,m)=>Math.max(mx,m.mins),0);
   const programar = (m) => {
@@ -287,9 +295,10 @@ function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas) {
       ...[...ALL_SLOTS].filter(s=>s.mins>maxZoneMins).sort((a,b)=>a.mins-b.mins),
       ...[...ALL_SLOTS].filter(s=>s.mins<=maxZoneMins).sort((a,b)=>a.mins-b.mins)
     ];
+    // Paso 1: respeta gap Y restricciones (ideal)
     for (const slot of slotsOrdered) {
       const key=`${slot.dia}|${slot.hora}|${slot.cancha}`;
-      if (occupied.has(key)) continue;
+      if (occupied.has(key)||isRestricted(slot,m.p1id,m.p2id)) continue;
       const allTimes=[...(pairMins[m.p1id]||[]),...(pairMins[m.p2id]||[])];
       let ok=true;
       for (const t of allTimes) {
@@ -298,9 +307,16 @@ function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas) {
       }
       if (ok) { occupied.add(key); [m.p1id,m.p2id].forEach(pid=>{pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(slot.mins);}); return {...m,...slot}; }
     }
+    // Paso 2: ignora gap pero respeta restricciones
     for (const slot of slotsOrdered) {
       const key=`${slot.dia}|${slot.hora}|${slot.cancha}`;
-      if (!occupied.has(key)) { occupied.add(key); [m.p1id,m.p2id].forEach(pid=>{pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(slot.mins);}); return {...m,...slot,conflict:true}; }
+      if (occupied.has(key)||isRestricted(slot,m.p1id,m.p2id)) continue;
+      occupied.add(key); [m.p1id,m.p2id].forEach(pid=>{pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(slot.mins);}); return {...m,...slot,conflict:true};
+    }
+    // Paso 3: cualquier slot libre (último recurso, marca conflicto de restricción)
+    for (const slot of slotsOrdered) {
+      const key=`${slot.dia}|${slot.hora}|${slot.cancha}`;
+      if (!occupied.has(key)) { occupied.add(key); [m.p1id,m.p2id].forEach(pid=>{pairMins[pid]=pairMins[pid]||[];pairMins[pid].push(slot.mins);}); return {...m,...slot,conflict:true,restrictionConflict:true}; }
     }
     return m;
   };
