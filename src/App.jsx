@@ -130,12 +130,52 @@ function roundRobin(ids) {
   return m;
 }
 
-function calcMatchResult(m) {
+function calcMatchResult(m, bestOf3=false) {
   let sa=0, sb=0;
-  if (n(m.s1p1)>n(m.s1p2)) sa++; else sb++;
-  if (n(m.s2p1)>n(m.s2p2)) sa++; else sb++;
-  if (sa===sb) { if (n(m.tbp1)>n(m.tbp2)) sa++; else sb++; }
+  if (bestOf3) {
+    // 3 sets: solo cuenta el set cuando hay un ganador claro
+    if (n(m.s1p1)>n(m.s1p2)) sa++; else if (n(m.s1p2)>n(m.s1p1)) sb++;
+    if (n(m.s2p1)>n(m.s2p2)) sa++; else if (n(m.s2p2)>n(m.s2p1)) sb++;
+    if (n(m.s3p1)>n(m.s3p2)) sa++; else if (n(m.s3p2)>n(m.s3p1)) sb++;
+  } else {
+    // 2 sets + super tie-break (formato de zona y rondas tempranas)
+    if (n(m.s1p1)>n(m.s1p2)) sa++; else sb++;
+    if (n(m.s2p1)>n(m.s2p2)) sa++; else sb++;
+    if (sa===sb) { if (n(m.tbp1)>n(m.tbp2)) sa++; else sb++; }
+  }
   return sa>sb ? m.p1id : m.p2id;
+}
+
+// Desempate por enfrentamiento directo (head-to-head).
+// Para grupos de 2: gana quien ganó el partido directo.
+// Para grupos de 3+: sub-tabla usando solo los partidos entre empatados.
+function resolveH2H(sorted, doneBetween) {
+  let i=0;
+  while(i<sorted.length){
+    let j=i+1;
+    while(j<sorted.length&&sorted[j].pts===sorted[i].pts&&(sorted[j].sg-sorted[j].sp)===(sorted[i].sg-sorted[i].sp)&&(sorted[j].gg-sorted[j].gp)===(sorted[i].gg-sorted[i].gp))j++;
+    if(j-i>1){
+      const group=sorted.slice(i,j);
+      const gIds=new Set(group.map(s=>s.id));
+      const subMs=doneBetween.filter(m=>gIds.has(m.p1id)&&gIds.has(m.p2id));
+      const sub={};group.forEach(s=>{sub[s.id]={pts:0,sg:0,sp:0,gg:0,gp:0};});
+      subMs.forEach(m=>{
+        const a=sub[m.p1id],b=sub[m.p2id];if(!a||!b)return;
+        let sa=0,sb=0;
+        if(n(m.s1p1)>n(m.s1p2))sa++;else sb++;
+        if(n(m.s2p1)>n(m.s2p2))sa++;else sb++;
+        if(sa===sb){if(n(m.tbp1)>n(m.tbp2))sa++;else sb++;}
+        a.sg+=sa;a.sp+=sb;b.sg+=sb;b.sp+=sa;
+        a.gg+=n(m.s1p1)+n(m.s2p1);a.gp+=n(m.s1p2)+n(m.s2p2);
+        b.gg+=n(m.s1p2)+n(m.s2p2);b.gp+=n(m.s1p1)+n(m.s2p1);
+        if(sa>sb)a.pts+=2;else b.pts+=2;
+      });
+      group.sort((a,b)=>sub[b.id].pts-sub[a.id].pts||(sub[b.id].sg-sub[b.id].sp)-(sub[a.id].sg-sub[a.id].sp)||(sub[b.id].gg-sub[b.id].gp)-(sub[a.id].gg-sub[a.id].gp));
+      for(let k=0;k<group.length;k++)sorted[i+k]=group[k];
+    }
+    i=j;
+  }
+  return sorted;
 }
 
 function calcStandings(pairIds, pairs, matches) {
@@ -165,8 +205,10 @@ function calcStandings(pairIds, pairs, matches) {
     for (let i=0;i<4;i++) { if (!order[i]&&remaining.length) order[i]=remaining.shift(); }
     return order.filter(id=>id!==undefined).map(id=>({...s[id],pair:byId[id]}));
   } else {
-    matches.filter(m=>m.done&&pairIds.includes(m.p1id)&&pairIds.includes(m.p2id)).forEach(processMatch);
-    return pairIds.map(id=>({...s[id],pair:byId[id]})).sort((a,b)=>b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp));
+    const doneMs=matches.filter(m=>m.done&&pairIds.includes(m.p1id)&&pairIds.includes(m.p2id));
+    doneMs.forEach(processMatch);
+    const sorted=pairIds.map(id=>({...s[id],pair:byId[id]})).sort((a,b)=>b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp));
+    return resolveH2H(sorted,doneMs);
   }
 }
 
@@ -550,13 +592,15 @@ function PlayerLoginModal({ error, onClearError, onSubmit, onClose }) {
   );
 }
 
-function ResultModal({ match, cat, onSave, onClose }) {
+function ResultModal({ match, cat, onSave, onClose, bestOf3=false }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
-  const [form,setForm]=useState({s1p1:match.s1p1||"",s1p2:match.s1p2||"",s2p1:match.s2p1||"",s2p2:match.s2p2||"",tbp1:match.tbp1||"",tbp2:match.tbp2||""});
+  const [form,setForm]=useState({s1p1:match.s1p1||"",s1p2:match.s1p2||"",s2p1:match.s2p1||"",s2p2:match.s2p2||"",tbp1:match.tbp1||"",tbp2:match.tbp2||"",s3p1:match.s3p1||"",s3p2:match.s3p2||""});
   const set1w=n(form.s1p1)!==n(form.s1p2)?(n(form.s1p1)>n(form.s1p2)?1:2):null;
   const set2w=n(form.s2p1)!==n(form.s2p2)?(n(form.s2p1)>n(form.s2p2)?1:2):null;
-  const needTB=set1w&&set2w&&set1w!==set2w;
-  const getWinner=()=>{let sa=0,sb=0;if(set1w===1)sa++;else if(set1w===2)sb++;if(set2w===1)sa++;else if(set2w===2)sb++;if(sa===sb){if(n(form.tbp1)>n(form.tbp2))sa++;else if(n(form.tbp2)>n(form.tbp1))sb++;}return sa>sb?match.p1id:sb>sa?match.p2id:null;};
+  const set3w=bestOf3?n(form.s3p1)!==n(form.s3p2)?(n(form.s3p1)>n(form.s3p2)?1:2):null:null;
+  const needTB=!bestOf3&&set1w&&set2w&&set1w!==set2w;
+  const needSet3=bestOf3&&set1w&&set2w&&set1w!==set2w;
+  const getWinner=()=>{let sa=0,sb=0;if(set1w===1)sa++;else if(set1w===2)sb++;if(set2w===1)sa++;else if(set2w===2)sb++;if(bestOf3){if(set3w===1)sa++;else if(set3w===2)sb++;}else{if(sa===sb){if(n(form.tbp1)>n(form.tbp2))sa++;else if(n(form.tbp2)>n(form.tbp1))sb++;}}return sa>sb?match.p1id:sb>sa?match.p2id:null;};
   const winner=getWinner(),p1=byId[match.p1id],p2=byId[match.p2id];
   const f=k=>({className:"inp score-inp",type:"number",min:0,max:99,value:form[k],onChange:e=>setForm(p=>({...p,[k]:e.target.value}))});
   return (
@@ -571,13 +615,16 @@ function ResultModal({ match, cat, onSave, onClose }) {
           <div className="score-row"><span className="score-lbl" style={{textAlign:"right"}}>{p1?.nombre}</span><input {...f(k1)}/><span className="score-vs">-</span><input {...f(k2)}/><span className="score-lbl">{p2?.nombre}</span></div>
         </div>
       ))}
+      {needSet3&&<div className="set-section"><div className="set-title">Set 3</div>
+        <div className="score-row"><span className="score-lbl" style={{textAlign:"right"}}>{p1?.nombre}</span><input {...f("s3p1")}/><span className="score-vs">-</span><input {...f("s3p2")}/><span className="score-lbl">{p2?.nombre}</span></div>
+      </div>}
       {needTB&&<div className="set-section tb"><div className="set-title">🔥 Super Tie-Break</div>
         <div className="score-row"><span className="score-lbl" style={{textAlign:"right"}}>{p1?.nombre}</span><input {...f("tbp1")}/><span className="score-vs">-</span><input {...f("tbp2")}/><span className="score-lbl">{p2?.nombre}</span></div>
       </div>}
       {winner&&<div className="winner-banner mb12"><div className="winner-text">🏆 {byId[winner]?.nombre}</div></div>}
       <div className="row g8">
         <button className="btn btn-primary f1" onClick={()=>winner&&onSave(match.id,{...form,done:true})} disabled={!winner}>Guardar</button>
-        {match.done&&<button className="btn btn-danger btn-sm" onClick={()=>onSave(match.id,{s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",done:false})}>Borrar</button>}
+        {match.done&&<button className="btn btn-danger btn-sm" onClick={()=>onSave(match.id,{s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",s3p1:"",s3p2:"",done:false})}>Borrar</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
       </div>
     </div></div>
@@ -904,7 +951,6 @@ function Posiciones({ cat }) {
     </div>
   );
 }
-
 function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch, onEditKOPair }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   const zonaStatus=cat.fixtureGenerado?cat.grupos.map(g=>{
@@ -970,14 +1016,14 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
                             <span style={{display:"flex",alignItems:"center",gap:4}}>{p1?p1.nombre:m.p1label||"TBD"}{m.p1provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
                             {p1&&m.p1label&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5}}>{m.p1label}</span>}
                           </span>
-                          {m.done&&!m.auto&&<span className="br-score">{m.s1p1} {m.s2p1}</span>}
+                          {m.done&&!m.auto&&<span className="br-score">{m.s1p1} {m.s2p1}{m.s3p1!=null&&m.s3p1!==""?` ${m.s3p1}`:""}</span>}
                         </div>
                         <div className={`br-team${!p2?" tbd":m.done&&m.winner===m.p2id?" win":""}`}>
                           <span style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
                             <span style={{display:"flex",alignItems:"center",gap:4}}>{p2?p2.nombre:m.p2label||"TBD"}{m.p2provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
                             {p2&&m.p2label&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5}}>{m.p2label}</span>}
                           </span>
-                          {m.done&&!m.auto&&<span className="br-score">{m.s1p2} {m.s2p2}</span>}
+                          {m.done&&!m.auto&&<span className="br-score">{m.s1p2} {m.s2p2}{m.s3p2!=null&&m.s3p2!==""?` ${m.s3p2}`:""}</span>}
                         </div>
                         {m.dia&&m.hora&&m.cancha&&!m.auto&&<div className="br-schedule">{m.dia} {m.hora} · {m.cancha}{isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}{isAdmin&&!m.done&&<button className="btn btn-ghost btn-xs" style={{marginLeft:4}} onClick={e=>{e.stopPropagation();onEditKOPair&&onEditKOPair(m);}}>👥</button>}</div>}
                       </div>
@@ -1100,6 +1146,12 @@ const CAT_LABELS={1:"1ra",2:"2da",3:"3ra",4:"4ta",5:"5ta",6:"6ta",7:"7ma",8:"8va
 const CAT_COLORS={1:"rgba(255,80,100,.15)",2:"rgba(255,140,60,.15)",3:"rgba(255,203,71,.15)",4:"rgba(180,100,255,.15)",5:"rgba(0,212,255,.15)",6:"rgba(61,255,160,.15)",7:"rgba(100,200,255,.15)",8:"rgba(100,130,160,.15)"};
 
 // Enlaces oficiales FIP — actualizar acá si la federación cambia alguna URL
+const GENERO_LABELS={M:"Hombres",F:"Mujeres"};
+const GENERO_COLORS={
+  M:{bg:"rgba(0,212,255,.08)",border:"rgba(0,212,255,.35)",text:"var(--accent2)"},
+  F:{bg:"rgba(255,100,180,.08)",border:"rgba(255,100,180,.35)",text:"#ff64b4"},
+};
+
 const FIP_LINKS=[
   {label:"Reglamento de juego",archivo:"FIP_Reglas-del-Padel.pdf",url:"https://share.google/2VMryftojywfpxf2w"},
   {label:"Código de ética",archivo:"Codigo-Etico-FIP-2024-1.pdf",url:"https://share.google/LJMRIlu40aCpIr49x"},
@@ -1130,10 +1182,18 @@ function ReglamentoView(){
   );
 }
 
-function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, isAdmin }) {
+function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdateGenero, isAdmin }) {
   const [sel,setSel]=useState(null);
   const [editingCat,setEditingCat]=useState(null);
+  const [editingGenero,setEditingGenero]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
+  const listM=list.filter(j=>j.genero==="M");
+  const listF=list.filter(j=>j.genero==="F");
+  const listNoG=list.filter(j=>j.genero!=="M"&&j.genero!=="F");
+  const displayItems=[];
+  if(listM.length){displayItems.push({type:'hdr',label:'Hombres',color:GENERO_COLORS.M});listM.forEach((j,i)=>displayItems.push({type:'player',j,rank:i+1}));}
+  if(listF.length){displayItems.push({type:'hdr',label:'Mujeres',color:GENERO_COLORS.F});listF.forEach((j,i)=>displayItems.push({type:'player',j,rank:i+1}));}
+  if(listNoG.length){displayItems.push({type:'hdr',label:'Sin género',color:null});listNoG.forEach((j,i)=>displayItems.push({type:'player',j,rank:i+1}));}
   const jug=sel?jugadores[sel]:null;
   const handleDelete=(cedula,e)=>{e.stopPropagation();if(!isAdmin)return;if(window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)){onDeleteJugador(cedula);if(sel===cedula)setSel(null);}};
   const handleCatChange=(cedula,val)=>{onUpdateCategoria(cedula,val?Number(val):null);setEditingCat(null);};
@@ -1144,28 +1204,41 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, isAdmin 
         <div className="empty"><div className="empty-ico">🏅</div><p>Los jugadores aparecen aquí al finalizar un torneo y otorgar puntos</p><p style={{fontSize:12,marginTop:8}}>Ingresá la cédula de cada jugador en Inscripción</p></div>
       ):(
         <div className="grid2">
-          <div>{list.map((j,i)=>(
-            <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)"}} onClick={()=>setSel(sel===j.cedula?null:j.cedula)}>
-              <div className={`rank-pos${i===0?" p1":i===1?" p2":i===2?" p3":""}`}>{i+1}</div>
-              <div className="f1">
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div>
-                  {j.categoria&&<span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,background:CAT_COLORS[j.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[j.categoria]}</span>}
+          <div>{displayItems.map((item,idx)=>{
+            if(item.type==='hdr')return <div key={idx} style={{padding:"5px 12px",borderRadius:8,marginBottom:4,marginTop:idx>0?8:0,background:item.color?item.color.bg:"rgba(60,80,100,.1)",border:`1px solid ${item.color?item.color.border:"var(--border)"}`,fontFamily:"Oswald",fontSize:10,fontWeight:600,letterSpacing:2,textTransform:"uppercase",color:item.color?item.color.text:"var(--muted)"}}>{item.label}</div>;
+            const {j,rank}=item;
+            return (
+              <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)"}} onClick={()=>setSel(sel===j.cedula?null:j.cedula)}>
+                <div className={`rank-pos${rank===1?" p1":rank===2?" p2":rank===3?" p3":""}`}>{rank}</div>
+                <div className="f1">
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div>
+                    {j.categoria&&<span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,background:CAT_COLORS[j.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[j.categoria]}</span>}
+                  </div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>CI: {j.cedula}</div>
                 </div>
-                <div style={{fontSize:11,color:"var(--muted)"}}>CI: {j.cedula}</div>
+                <div className="col" style={{alignItems:"flex-end"}}><div className="rank-pts">{j.totalPts}</div><div className="rank-pts-lbl">puntos</div></div>
+                {isAdmin&&(editingCat===j.cedula?(
+                  <select className="inp" style={{width:80,fontSize:11,padding:"3px 6px"}} autoFocus value={j.categoria||""} onChange={e=>{e.stopPropagation();handleCatChange(j.cedula,e.target.value);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingCat(null)}>
+                    <option value="">Sin cat.</option>
+                    {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{CAT_LABELS[n]}</option>)}
+                  </select>
+                ):(
+                  <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Editar categoria">🏷️</button>
+                ))}
+                {isAdmin&&(editingGenero===j.cedula?(
+                  <select className="inp" style={{width:90,fontSize:11,padding:"3px 6px"}} autoFocus value={j.genero||""} onChange={e=>{e.stopPropagation();onUpdateGenero(j.cedula,e.target.value||null);setEditingGenero(null);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingGenero(null)}>
+                    <option value="">Sin género</option>
+                    <option value="M">Hombres</option>
+                    <option value="F">Mujeres</option>
+                  </select>
+                ):(
+                  <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingGenero(j.cedula);}} title="Género" style={{color:j.genero==="M"?"var(--accent2)":j.genero==="F"?"#ff64b4":"var(--muted)"}}>{j.genero==="M"?"♂":j.genero==="F"?"♀":"⚧"}</button>
+                ))}
+                <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
               </div>
-              <div className="col" style={{alignItems:"flex-end"}}><div className="rank-pts">{j.totalPts}</div><div className="rank-pts-lbl">puntos</div></div>
-              {isAdmin&&(editingCat===j.cedula?(
-                <select className="inp" style={{width:80,fontSize:11,padding:"3px 6px"}} autoFocus value={j.categoria||""} onChange={e=>{e.stopPropagation();handleCatChange(j.cedula,e.target.value);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingCat(null)}>
-                  <option value="">Sin cat.</option>
-                  {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{CAT_LABELS[n]}</option>)}
-                </select>
-              ):(
-                <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Editar categoria">🏷️</button>
-              ))}
-              <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
-            </div>
-          ))}</div>
+            );
+          })}</div>
           <div>{jug?(
             <div className="card" style={{position:"sticky",top:90}}>
               <div className="card-title">Historial — {jug.nombre}</div>
@@ -1661,7 +1734,9 @@ export default function App() {
 
   async function guardarResultadoKnockout(matchId,result){
     const fm=activeCat.knockoutRounds.flat().find(m=>m.id===matchId);if(!fm)return;
-    const winner=result.done?calcMatchResult({...fm,...result}):null;
+    const totalRounds=activeCat.knockoutRounds.length;
+    const isBestOf3=totalRounds>0&&fm.round>=totalRounds-2;
+    const winner=result.done?calcMatchResult({...fm,...result},isBestOf3):null;
     let nr=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...result,winner,done:!!result.done}:m));
     if(winner){
       nr.forEach((round,ri)=>{round.forEach(m=>{if(!m.prevIds?.length)return;if(m.prevIds[0]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p1id:winner}:nm);if(m.prevIds[1]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p2id:winner}:nm);});});
@@ -1684,7 +1759,11 @@ export default function App() {
         if(!cedula)return;
         const nombre=cedula===pair.j1cedula?pair.j1nombre||pair.j1:pair.j2nombre||pair.j2;
         if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
-        const prevEntry=nxt[cedula].historial.find(h=>h.torneoId===activeTId&&h.catId===activeCId);
+        // Busca entrada previa: mismo torneo/categoría, O misma edición FIP en año anterior
+        const prevEntry=nxt[cedula].historial.find(h=>
+          (h.torneoId===activeTId&&h.catId===activeCId)||
+          (activeTorneo.edicion&&h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId)
+        );
         const nuevaEntry={torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:prevEntry?.fecha||new Date().toLocaleDateString("es-PY")};
         if(prevEntry){
           const delta=pts-(prevEntry.pts||0);
@@ -1718,6 +1797,14 @@ export default function App() {
       setJugadores(prev=>({...prev,[cedula]:updated}));
       await updateDoc(doc(db,"jugadores",cedula),{categoria:categoria||null});
     }catch(err){alert("Error al guardar categoria: "+err.message);}
+  }
+
+  async function actualizarGeneroJugador(cedula,genero){
+    try{
+      const updated={...jugadores[cedula],genero:genero||null};
+      setJugadores(prev=>({...prev,[cedula]:updated}));
+      await updateDoc(doc(db,"jugadores",cedula),{genero:genero||null});
+    }catch(err){alert("Error al guardar género: "+err.message);}
   }
 
   async function toggleBloqueoSlot(slotKey){
@@ -1793,7 +1880,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
         <>
           <div className="hero">
             <div className="hero-title">GESTIÓN DE<br/><span>TORNEOS</span></div>
@@ -1882,7 +1969,7 @@ export default function App() {
     </div></div>}
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)}/>}
-    {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)}/>}
+    {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)} bestOf3={activeCat.knockoutRounds?.length>0&&modal.match.round>=(activeCat.knockoutRounds.length-2)}/>}
     {modal?.type==="editKOPair"&&activeCat&&<EditKOPairModal match={modal.match} cat={activeCat} onSave={editarParejaCruce} onClose={()=>setModal(null)}/>}
     {modal?.type==="editMatch"&&(()=>{
       const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
