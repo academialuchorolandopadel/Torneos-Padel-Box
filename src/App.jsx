@@ -48,14 +48,15 @@ SLOT_DEFS.forEach(s => {
   BLOQUE_TO_SLOTS[s.bloque].push(`${s.dia}|${s.hora}`);
 });
 
-const STAGE_PTS = { campeon:100, finalista:75, semifinal:50, cuartos:25, octavos:15, zona:10 };
-const STAGE_LABEL = { campeon:"🥇 Campeón", finalista:"🥈 Finalista", semifinal:"🥉 Semifinal", cuartos:"⚡ Cuartos", octavos:"📋 Octavos", zona:"📍 Zona" };
+const STAGE_PTS = { campeon:100, finalista:75, semifinal:50, cuartos:25, octavos:15, dieciseisavos:12, zona:10 };
+const STAGE_LABEL = { campeon:"🥇 Campeón", finalista:"🥈 Finalista", semifinal:"🥉 Semifinal", cuartos:"⚡ Cuartos", octavos:"📋 Octavos", dieciseisavos:"🎯 16avos", zona:"📍 Zona" };
 
 const ROUND_NAMES_BY_SIZE = {
   2: ["FINAL"],
   4: ["SEMIS", "FINAL"],
   8: ["CUARTOS", "SEMIS", "FINAL"],
   16: ["OCTAVOS", "CUARTOS", "SEMIS", "FINAL"],
+  32: ["16avos", "OCTAVOS", "CUARTOS", "SEMIS", "FINAL"],
 };
 
 function getRoundNames(knockoutRounds) {
@@ -101,7 +102,7 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairMap = {}, isKnockou
     for (const slot of slotsToTry) {
       const key = `${slot.dia}|${slot.hora}|${slot.cancha}`;
       if (occupied.has(key) || isBlocked(slot, m.p1id, m.p2id)) continue;
-      const allTimes = [...(m.p1id?pairMins[m.p1id]||[]:[]),(m.p2id?pairMins[m.p2id]||[]:[])].flat();
+      const allTimes = [...(m.p1id?pairMins[m.p1id]||[]:[]),...(m.p2id?pairMins[m.p2id]||[]:[])];
       if (allTimes.every((t) => Math.abs(t - slot.mins) >= MIN_GAP)) {
         occupied.add(key);
         [m.p1id, m.p2id].forEach((pid) => { if (pid) { pairMins[pid]=pairMins[pid]||[]; pairMins[pid].push(slot.mins); } });
@@ -357,27 +358,13 @@ function calcPairStages(cat) {
       if (rem===0) { stages[m.winner]="campeon"; if(loser) stages[loser]="finalista"; }
       else if (rem===1&&loser) stages[loser]="semifinal";
       else if (rem===2&&loser) stages[loser]="cuartos";
-      else if (loser) stages[loser]="octavos";
+      else if (rem===3&&loser) stages[loser]="octavos";
+      else if (loser) stages[loser]="dieciseisavos";
     });
   });
   return stages;
 }
 
-function getKnockoutWithSchedules(knockoutRounds, existingMatches, parejas) {
-  if (!knockoutRounds||!knockoutRounds.length) return knockoutRounds;
-  // Solo programar partidos que no tienen dia asignado (respetar ediciones manuales)
-  const allMatches=knockoutRounds.flat().filter(m=>!m.auto&&m.p1id&&m.p2id&&!m.dia);
-  if (allMatches.length===0) return knockoutRounds;
-  const pairMap=Object.fromEntries(parejas.map(p=>[p.id,p]));
-  const scheduled=scheduleMatches(allMatches,existingMatches,pairMap,true);
-  const scheduledMap=new Map(scheduled.map(m=>[m.id,m]));
-  return knockoutRounds.map(round=>round.map(m=>{
-    if (m.auto) return m;
-    if (m.dia) return m; // Ya tiene horario asignado, respetar
-    const s=scheduledMap.get(m.id);
-    return s?{...m,...s}:m;
-  }));
-}
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -648,12 +635,18 @@ function EditMatchModal({ match, cat, allPartidos, onSave, onClose }) {
   const hoursForDay=SLOT_DEFS.filter(s=>s.dia===selectedDay).map(s=>s.hora);
   useEffect(()=>{if(!selectedHour&&hoursForDay.length)setSelectedHour(hoursForDay[0]);},[selectedDay,hoursForDay,selectedHour]);
   const getMins=(dia,hora)=>{const s=SLOT_DEFS.find(s=>s.dia===dia&&s.hora===hora);return s?s.mins:0;};
+  // Detecta si el partido editado es de llave para usar el gap correcto (KO: 120/180 · zona: 300)
+  const isKO=(cat.knockoutRounds||[]).flat().some(m=>m.id===match.id);
   const checkConflicts=()=>{
     const nc=[];const cm=getMins(selectedDay,selectedHour);
+    // Conflicto de slot: revisa TODAS las categorías del torneo (las canchas son compartidas)
     const ss=allPartidos.find(p=>p.id!==match.id&&p.dia===selectedDay&&p.hora===selectedHour&&p.cancha===selectedCourt);
     if(ss)nc.push({type:'slot',match:ss});
     [match.p1id,match.p2id].filter(Boolean).forEach(jid=>{
-      allPartidos.filter(p=>p.id!==match.id&&(p.p1id===jid||p.p2id===jid)).forEach(op=>{if(Math.abs(cm-getMins(op.dia,op.hora))<MIN_GAP)nc.push({type:'rest',match:op,jugador:jid});});
+      allPartidos.filter(p=>p.id!==match.id&&(p.p1id===jid||p.p2id===jid)).forEach(op=>{
+        const gap=isKO?(op.dia===selectedDay?MIN_GAP_KO_SAME_DAY:MIN_GAP_KO_DIFF_DAY):MIN_GAP;
+        if(Math.abs(cm-getMins(op.dia,op.hora))<gap)nc.push({type:'rest',match:op,jugador:jid});
+      });
     });
     setConflicts(nc);
   };
@@ -923,10 +916,8 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
   const puedeGenerar=cat.fixtureGenerado&&cat.grupos.length>0;
   const esProvisorio=puedeGenerar&&!todasCompletas;
   const roundNames=getRoundNames(cat.knockoutRounds);
-  const knockoutRoundsWithSchedules=React.useMemo(()=>{
-    if (!cat.knockoutRounds||!cat.knockoutRounds.length) return [];
-    return getKnockoutWithSchedules(cat.knockoutRounds,allMatches,cat.parejas);
-  },[cat.knockoutRounds,allMatches,cat.parejas]);
+  // Los horarios ya vienen calculados y guardados en cat.knockoutRounds
+  const knockoutRoundsWithSchedules=cat.knockoutRounds||[];
   const koFlat=knockoutRoundsWithSchedules.flat();
   const koDone=koFlat.filter(m=>m.done&&!m.auto).length;
   const koTotal=koFlat.filter(m=>!m.auto).length;
@@ -938,7 +929,7 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
         <div className="sec-title">Llave Final</div>
         <div className="row g8 wrap">
           {cat.knockoutGenerated&&<span className="badge bb">{koDone}/{koTotal}</span>}
-          {!pointsAwarded&&koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🏅 Otorgar puntos</button>}
+          {koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
           {pointsAwarded&&<span className="badge bg">✓ Puntos otorgados</span>}
           {isAdmin&&<button className={`btn btn-sm ${puedeGenerar?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!puedeGenerar} title={puedeGenerar?"Generar llave":"Generá el fixture primero"} style={{opacity:puedeGenerar?1:0.4,cursor:puedeGenerar?'pointer':'not-allowed'}}>{cat.knockoutGenerated?(todasCompletas?"🔄 Regenerar Llave":"🔄 Actualizar Llave"):(todasCompletas?"🏆 Generar Llave Final":"⚡ Llave Provisional")}</button>}
         </div>
@@ -1107,6 +1098,37 @@ function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch, onToggleBloqueo
 
 const CAT_LABELS={1:"1ra",2:"2da",3:"3ra",4:"4ta",5:"5ta",6:"6ta",7:"7ma",8:"8va"};
 const CAT_COLORS={1:"rgba(255,80,100,.15)",2:"rgba(255,140,60,.15)",3:"rgba(255,203,71,.15)",4:"rgba(180,100,255,.15)",5:"rgba(0,212,255,.15)",6:"rgba(61,255,160,.15)",7:"rgba(100,200,255,.15)",8:"rgba(100,130,160,.15)"};
+
+// Enlaces oficiales FIP — actualizar acá si la federación cambia alguna URL
+const FIP_LINKS=[
+  {label:"Reglamento de juego",archivo:"FIP_Reglas-del-Padel.pdf",url:"https://share.google/2VMryftojywfpxf2w"},
+  {label:"Código de ética",archivo:"Codigo-Etico-FIP-2024-1.pdf",url:"https://share.google/LJMRIlu40aCpIr49x"},
+  {label:"Código de disciplina",archivo:"Codigo-de-Disciplina-aprobado.pdf",url:"https://share.google/3Btq89O0s8USsq2mh"},
+];
+
+function ReglamentoView(){
+  return (
+    <div>
+      <div className="sec-hdr"><div className="sec-title">Reglamento</div><span className="badge bb">FIP oficial</span></div>
+      <div className="card mb16">
+        <div className="card-title">Federación Internacional de Pádel</div>
+        <p style={{fontSize:13,color:"var(--muted)",lineHeight:1.5,margin:0}}>Este torneo se rige por los reglamentos y códigos oficiales de la FIP. Tocá cualquiera para abrirlo en una pestaña nueva.</p>
+      </div>
+      {FIP_LINKS.map((l,i)=>(
+        <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="card" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,textDecoration:"none"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+            <span style={{fontSize:24,flexShrink:0}}>📄</span>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:15,fontWeight:600,color:"var(--text)"}}>{l.label}</div>
+              <div style={{fontSize:11,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.archivo}</div>
+            </div>
+          </div>
+          <span className="badge bg" style={{flexShrink:0}}>Abrir ↗</span>
+        </a>
+      ))}
+    </div>
+  );
+}
 
 function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, isAdmin }) {
   const [sel,setSel]=useState(null);
@@ -1358,7 +1380,7 @@ export default function App() {
             const ps=await getDocs(query(collection(db,"parejas"),where("categoriaId","==",cat.id)));
             cat.parejas=ps.docs.map(d=>migratePairRestrictions({id:d.id,...d.data()}));
             const ms=await getDocs(query(collection(db,"partidos"),where("categoriaId","==",cat.id)));
-            cat.partidos=ms.docs.map(d=>({id:d.id,...d.data()}));
+            cat.partidos=ms.docs.map(d=>{const p={id:d.id,...d.data()};if(p.done&&p.winner==null&&p.p1id&&p.p2id)p.winner=calcMatchResult(p);return p;});
             if(cat.knockoutMatchesFlat&&cat.knockoutMatchesFlat.length>0){
               const rounds=[];
               cat.knockoutMatchesFlat.forEach(m=>{
@@ -1382,7 +1404,7 @@ export default function App() {
 
   const activeTorneo=torneos.find(t=>t.id===activeTId);
   const activeCat=activeTorneo?.categorias?.find(c=>c.id===activeCId);
-  const allMatches=activeTorneo?.categorias?.flatMap(c=>c.partidos)||[];
+  const allMatches=activeTorneo?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])])||[];
 
   const getAllCedulas=()=>{const s=new Set();torneos.forEach(t=>t.categorias?.forEach(c=>c.parejas?.forEach(p=>{if(p.j1cedula)s.add(p.j1cedula);if(p.j2cedula)s.add(p.j2cedula);})));return s;};
   const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){sessionStorage.setItem("padelbox_player","true");sessionStorage.setItem("padelbox_player_cedula",cedula);setIsPlayer(true);setPlayerCedula(cedula);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
@@ -1434,18 +1456,37 @@ export default function App() {
     if(existingSize!==bracketSize||existingRounds.length===0){
       finalRounds=newRounds;
     }else{
+      // Merge: preservar resultados jugados, ids y enlaces (prevIds).
       finalRounds=newRounds.map((round,ri)=>round.map((match,mi)=>{
         const old=existingRounds[ri]?.[mi];
         if(!old)return match;
         if(old.done&&!old.auto)return{...old,p1label:match.p1label,p2label:match.p2label,p1provisorio:match.p1provisorio,p2provisorio:match.p2provisorio};
-        return{...match,id:old.id};
+        return{...match,id:old.id,prevIds:old.prevIds||match.prevIds};
+      }));
+      // Repropagar ganadores de partidos jugados hacia las rondas siguientes
+      // (rellena los cruces TBD que se vaciaron al reconstruir la llave).
+      for(let ri=0;ri<finalRounds.length-1;ri++){
+        finalRounds[ri].forEach(m=>{
+          if(!m.done||!m.winner)return;
+          finalRounds[ri+1]=finalRounds[ri+1].map(nm=>{
+            if(!nm.prevIds?.length||nm.done)return nm;
+            if(nm.prevIds[0]===m.id)return{...nm,p1id:m.winner};
+            if(nm.prevIds[1]===m.id)return{...nm,p2id:m.winner};
+            return nm;
+          });
+        });
+      }
+      // Restaurar horario asignado (manual o automático) si las parejas del cruce no cambiaron.
+      const oldById={};existingRounds.flat().forEach(m=>{oldById[m.id]=m;});
+      finalRounds=finalRounds.map(round=>round.map(m=>{
+        const old=oldById[m.id];
+        if(old&&old.dia&&old.p1id===m.p1id&&old.p2id===m.p2id)return{...m,dia:old.dia,hora:old.hora,cancha:old.cancha,mins:old.mins};
+        return m;
       }));
     }
-    const playedKO=finalRounds.flat().filter(m=>m.done&&!m.auto&&m.dia);
-    const allExisting=[
-      ...(torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.id===activeCId?[]:(c.knockoutRounds?.flat()||[]))])||[]),
-      ...playedKO
-    ];
+    // Todo cruce con horario fijado (jugado, manual o preservado) ocupa su slot
+    const fixedKO=finalRounds.flat().filter(m=>!m.auto&&m.dia&&m.dia!=="?");
+    const allExisting=[...getSlotsOcupados(activeCId),...fixedKO];
     const rescheduled=scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:rescheduled}));
     await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:rescheduled.flat()});
@@ -1490,7 +1531,11 @@ export default function App() {
     }
   }
 
-  function eliminarPareja(id){updateCat(activeCId,c=>({...c,parejas:c.parejas.filter(p=>p.id!==id)}));}
+  async function eliminarPareja(id){
+    updateCat(activeCId,c=>({...c,parejas:c.parejas.filter(p=>p.id!==id)}));
+    try{await deleteDoc(doc(db,"parejas",id));}
+    catch(err){console.error("Error eliminando pareja:",err);alert("Error al eliminar la pareja: "+err.message);}
+  }
 
   async function editarPareja(updated){
     const uc=migratePairRestrictions(updated);
@@ -1552,13 +1597,28 @@ export default function App() {
     await Promise.all(partidos.map(m=>guardarPartido(m)));
   }
 
+  // Helper unificado: todos los partidos que ocupan slots, EXCLUYENDO la llave
+  // de la categoría que se está reprogramando, e INCLUYENDO los slots bloqueados.
+  function getSlotsOcupados(excludeCatId){
+    const t=torneos.find(t=>t.id===activeTId);
+    const matches=t?.categorias?.flatMap(c=>[
+      ...(c.partidos||[]),
+      ...(c.id===excludeCatId?[]:(c.knockoutRounds?.flat()||[]))
+    ])||[];
+    const bloqueados=(t?.slotsBoqueados||[]).map(k=>{
+      const[dia,hora,cancha]=k.split("|");const s=SLOT_DEFS.find(x=>x.dia===dia&&x.hora===hora);
+      return s?{dia,hora,cancha,mins:s.mins,p1id:"__bloq__",p2id:"__bloq__"}:null;
+    }).filter(Boolean);
+    return [...matches,...bloqueados];
+  }
+
   async function generarLlave(){
     if(!activeCat||!activeCat.fixtureGenerado)return;
     const result=calcClassified(activeCat,true);
     if(!result.classified?.length){alert("No hay suficientes datos para generar la llave");return;}
     const{classified,bracketSize}=result;
     const newRounds=buildDynamicBracket(classified,bracketSize);
-    const allExisting=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])])||[];
+    const allExisting=getSlotsOcupados(activeCId);
     const scheduled=scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:scheduled,knockoutGenerated:true}));
     try{
@@ -1572,26 +1632,27 @@ export default function App() {
   async function guardarResultado(matchId,result){
     const cat=torneos.find(t=>t.id===activeTId)?.categorias?.find(c=>c.id===activeCId);if(!cat)return;
     const m=cat.partidos.find(p=>p.id===matchId);if(!m)return;
+    const winner=result.done?calcMatchResult({...m,...result}):null;
     let updatedC=null,updatedD=null;
     if(m.zona4&&(m.zona4Tipo==="A"||m.zona4Tipo==="B")&&result.done){
-      const um={...m,...result,winner:calcMatchResult({...m,...result})};const wi=um.winner;const lo=wi===um.p1id?um.p2id:um.p1id;
+      const lo=winner===m.p1id?m.p2id:m.p1id;
       const mC=cat.partidos.find(p=>p.zona4&&p.zona4GrupoId===m.zona4GrupoId&&p.zona4Tipo==="C");
       const mD=cat.partidos.find(p=>p.zona4&&p.zona4GrupoId===m.zona4GrupoId&&p.zona4Tipo==="D");
-      if(m.zona4Tipo==="A"){if(mC)updatedC={...mC,p1id:wi};if(mD)updatedD={...mD,p1id:lo};}
-      else{if(mC)updatedC={...mC,p2id:wi};if(mD)updatedD={...mD,p2id:lo};}
+      if(m.zona4Tipo==="A"){if(mC)updatedC={...mC,p1id:winner};if(mD)updatedD={...mD,p1id:lo};}
+      else{if(mC)updatedC={...mC,p2id:winner};if(mD)updatedD={...mD,p2id:lo};}
     }
     updateCat(activeCId,c=>{
-      let np=c.partidos.map(p=>{if(p.id===matchId){const w=result.done?calcMatchResult({...p,...result}):null;return{...p,...result,winner:w};}return p;});
+      let np=c.partidos.map(p=>p.id===matchId?{...p,...result,winner}:p);
       if(updatedC)np=np.map(p=>p.id===updatedC.id?updatedC:p);
       if(updatedD)np=np.map(p=>p.id===updatedD.id?updatedD:p);
       return{...c,partidos:np};
     });
     setModal(null);
-    await updateDoc(doc(db,"partidos",matchId),result);
+    await updateDoc(doc(db,"partidos",matchId),{...result,winner});
     if(updatedC)await updateDoc(doc(db,"partidos",updatedC.id),updatedC);
     if(updatedD)await updateDoc(doc(db,"partidos",updatedD.id),updatedD);
     if(cat.knockoutGenerated){
-      let updPart=cat.partidos.map(p=>{if(p.id===matchId){const w=result.done?calcMatchResult({...p,...result}):null;return{...p,...result,winner:w};}return p;});
+      let updPart=cat.partidos.map(p=>p.id===matchId?{...p,...result,winner}:p);
       if(updatedC)updPart=updPart.map(p=>p.id===updatedC.id?updatedC:p);
       if(updatedD)updPart=updPart.map(p=>p.id===updatedD.id?updatedD:p);
       await recalcularLlaveProvisoria({...cat,partidos:updPart});
@@ -1604,7 +1665,7 @@ export default function App() {
     let nr=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...result,winner,done:!!result.done}:m));
     if(winner){
       nr.forEach((round,ri)=>{round.forEach(m=>{if(!m.prevIds?.length)return;if(m.prevIds[0]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p1id:winner}:nm);if(m.prevIds[1]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p2id:winner}:nm);});});
-      const allEx=torneos.find(t=>t.id===activeTId)?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.id===activeCId?[]:(c.knockoutRounds?.flat()||[]))])||[];
+      const allEx=getSlotsOcupados(activeCId);
       nr=scheduleKnockoutMatches(nr,allEx,activeCat.parejas);
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nr}));setModal(null);await guardarKnockout(nr);
@@ -1619,9 +1680,14 @@ export default function App() {
         [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
           if(!cedula)return;const nombre=cedula===pair.j1cedula?pair.j1nombre||pair.j1:pair.j2nombre||pair.j2;
           if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
-          const already=nxt[cedula].historial.some(h=>h.torneoId===activeTId&&h.catId===activeCId);
-          if(!already)nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,
-            historial:[...nxt[cedula].historial,{torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:new Date().toLocaleDateString("es-PY")}]};
+          const prevEntry=nxt[cedula].historial.find(h=>h.torneoId===activeTId&&h.catId===activeCId);
+          const nuevaEntry={torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:prevEntry?.fecha||new Date().toLocaleDateString("es-PY")};
+          if(prevEntry){
+            const delta=pts-(prevEntry.pts||0);
+            nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+delta,historial:nxt[cedula].historial.map(h=>(h.torneoId===activeTId&&h.catId===activeCId)?nuevaEntry:h)};
+          }else{
+            nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,historial:[...nxt[cedula].historial,nuevaEntry]};
+          }
         });
       });
       nuevos=Object.values(nxt);return nxt;
@@ -1707,11 +1773,12 @@ export default function App() {
       <div className="nav-tabs" style={{marginLeft:"auto"}}>
         <button className={`nav-tab${appView==="torneos"?" on":""}`} onClick={()=>setAppView("torneos")}>🎾 Torneos</button>
         <button className={`nav-tab jug${appView==="jugadores"?" on":""}`} onClick={()=>setAppView("jugadores")}>🏅 Jugadores</button>
+        <button className={`nav-tab${appView==="reglamento"?" on":""}`} onClick={()=>setAppView("reglamento")}>📖 Reglamento</button>
       </div>
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} isAdmin={isAdmin}/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
         <>
           <div className="hero">
             <div className="hero-title">GESTIÓN DE<br/><span>TORNEOS</span></div>
@@ -1753,7 +1820,7 @@ export default function App() {
       {tForm.catTipo!=="libre"&&<div className="col mb16"><label className="lbl">{tForm.catTipo==="fijo"?"Categoría (1-8)":"Número de suma"}</label>
         <select className="inp" value={tForm.catNum} onChange={e=>setTForm(p=>({...p,catNum:e.target.value}))}>
           <option value="">Seleccioná...</option>
-          {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{tForm.catTipo==="fijo"?`${n}° Categoría`:`Suma ${n}`}</option>)}
+          {[8,7,6,5,4,3,2,1].map(num=><option key={num} value={num}>{tForm.catTipo==="fijo"?`${num}° Categoría`:`Suma ${num}`}</option>)}
         </select>
       </div>}
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearTorneo}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
@@ -1805,7 +1872,8 @@ export default function App() {
     {modal?.type==="editMatch"&&(()=>{
       const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
       if(!matchCat)return null;
-      return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={[...matchCat.partidos,...(matchCat.knockoutRounds?.flat()||[])]} onSave={editarPartido} onClose={()=>setModal(null)}/>;
+      const allCatPartidos=(activeTorneo?.categorias||[]).flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])]);
+      return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={allCatPartidos} onSave={editarPartido} onClose={()=>setModal(null)}/>;
     })()}
     {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
