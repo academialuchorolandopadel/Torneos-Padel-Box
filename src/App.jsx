@@ -1673,28 +1673,43 @@ export default function App() {
 
   async function otorgarPuntos(){
     if(!activeCat||!activeTorneo)return;
-    const stages=calcPairStages(activeCat);let nuevos=[];
-    setJugadores(prev=>{const nxt={...prev};
-      activeCat.parejas.forEach(pair=>{
-        const stage=stages[pair.id]||"zona";const pts=STAGE_PTS[stage]||0;
-        [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
-          if(!cedula)return;const nombre=cedula===pair.j1cedula?pair.j1nombre||pair.j1:pair.j2nombre||pair.j2;
-          if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
-          const prevEntry=nxt[cedula].historial.find(h=>h.torneoId===activeTId&&h.catId===activeCId);
-          const nuevaEntry={torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:prevEntry?.fecha||new Date().toLocaleDateString("es-PY")};
-          if(prevEntry){
-            const delta=pts-(prevEntry.pts||0);
-            nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+delta,historial:nxt[cedula].historial.map(h=>(h.torneoId===activeTId&&h.catId===activeCId)?nuevaEntry:h)};
-          }else{
-            nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,historial:[...nxt[cedula].historial,nuevaEntry]};
-          }
-        });
+    const stages=calcPairStages(activeCat);
+    // Calcular fuera del setter de React: garantiza que los datos estén listos
+    // antes del batch.commit (el setter puede ser diferido por React).
+    const nxt={...jugadores};
+    const cedulasModificadas=new Set();
+    activeCat.parejas.forEach(pair=>{
+      const stage=stages[pair.id]||"zona";const pts=STAGE_PTS[stage]||0;
+      [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
+        if(!cedula)return;
+        const nombre=cedula===pair.j1cedula?pair.j1nombre||pair.j1:pair.j2nombre||pair.j2;
+        if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
+        const prevEntry=nxt[cedula].historial.find(h=>h.torneoId===activeTId&&h.catId===activeCId);
+        const nuevaEntry={torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:prevEntry?.fecha||new Date().toLocaleDateString("es-PY")};
+        if(prevEntry){
+          const delta=pts-(prevEntry.pts||0);
+          nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+delta,
+            historial:nxt[cedula].historial.map(h=>(h.torneoId===activeTId&&h.catId===activeCId)?nuevaEntry:h)};
+        }else{
+          nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,
+            historial:[...nxt[cedula].historial,nuevaEntry]};
+        }
+        cedulasModificadas.add(cedula);
       });
-      nuevos=Object.values(nxt);return nxt;
     });
+    setJugadores(nxt);
     updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    const batch=writeBatch(db);nuevos.forEach(j=>batch.set(doc(db,"jugadores",j.cedula),j));batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
-    await batch.commit();alert("✅ Puntos guardados correctamente");
+    const batch=writeBatch(db);
+    // Solo persiste las cédulas que este torneo/categoría modificó
+    [...cedulasModificadas].forEach(cedula=>batch.set(doc(db,"jugadores",cedula),nxt[cedula]));
+    batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
+    try{
+      await batch.commit();
+      alert("✅ Puntos guardados correctamente");
+    }catch(err){
+      console.error("Error guardando puntos:",err);
+      alert("❌ Error al guardar los puntos: "+err.message);
+    }
   }
 
   async function actualizarCategoriaJugador(cedula,categoria){
