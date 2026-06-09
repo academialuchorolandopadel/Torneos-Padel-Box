@@ -1321,10 +1321,11 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
               </div>
               <div style={{fontFamily:"Oswald",fontSize:36,fontWeight:700,color:"var(--accent)",marginBottom:2}}>{jug.totalPts}</div>
               <div style={{fontSize:11,color:"var(--muted)",marginBottom:16,letterSpacing:1,textTransform:"uppercase"}}>puntos totales</div>
+              {(()=>{const d=(jug.historial||[]).filter(h=>h.torneoEdicion).reduce((s,h)=>s+(h.pts||0),0);return d>0&&<div style={{fontSize:11,color:"var(--gold)",marginBottom:12,display:"flex",alignItems:"center",gap:4}}>🛡️ <span><b>{d}</b> pts a defender en próximas ediciones</span></div>;})()}
               {jug.historial.map((h,i)=>(
                 <div key={i} className="hist-item">
                   <div><div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {h.fecha}</div></div>
-                  <div className="col" style={{alignItems:"flex-end",gap:3}}><span className="badge bg">{STAGE_LABEL[h.stage]}</span><span style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:15}}>+{h.pts}</span></div>
+                  <div className="col" style={{alignItems:"flex-end",gap:3}}><span className="badge bg">{STAGE_LABEL[h.stage]}</span>{h.torneoEdicion&&<span style={{fontSize:9,color:"var(--gold)",marginTop:2}}>🛡️</span>}<span style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:15}}>+{h.pts}</span></div>
                 </div>
               ))}
             </div>
@@ -1623,17 +1624,131 @@ function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarResultado
   );
 }
 
+function calcAmericanoParejasStandings(cat){
+  const partidos=cat.americanoPartidos||[];
+  const stats=Object.fromEntries(cat.parejas.map(p=>[p.id,{id:p.id,nombre:p.nombre,ganados:0,perdidos:0}]));
+  partidos.forEach(m=>{
+    if(!m.done)return;
+    const gA=Number(m.juegosA)||0,gB=Number(m.juegosB)||0;
+    if(stats[m.p1id]){stats[m.p1id].ganados+=gA;stats[m.p1id].perdidos+=gB;}
+    if(stats[m.p2id]){stats[m.p2id].ganados+=gB;stats[m.p2id].perdidos+=gA;}
+  });
+  return Object.values(stats).sort((a,b)=>{
+    if(b.ganados!==a.ganados)return b.ganados-a.ganados;
+    const da=a.ganados-a.perdidos,db=b.ganados-b.perdidos;
+    if(db!==da)return db-da;
+    return a.nombre.localeCompare(b.nombre);
+  });
+}
+
+function AmericanoParejasView({cat,isAdmin,onGuardarResultado,onGenerarFixture,onOtorgarPuntos,pointsAwarded}){
+  const [rondaIdx,setRondaIdx]=useState(0);
+  const [editId,setEditId]=useState(null);
+  const [fA,setFA]=useState("");
+  const [fB,setFB]=useState("");
+  const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
+  const partidos=cat.americanoPartidos||[];
+  const N=cat.parejas.length;
+  const numRondas=N%2===0?N-1:N;
+  const totalDone=partidos.filter(m=>m.done).length;
+  const standings=calcAmericanoParejasStandings(cat);
+  const POSPTS=[0,30,20,15,15,10,10,5,5];
+  const rondaPartidos=partidos.filter(m=>m.ronda===rondaIdx);
+  const handleSave=()=>{if(!editId||fA===""||fB==="")return;onGuardarResultado(editId,parseInt(fA),parseInt(fB));setEditId(null);setFA("");setFB("");};
+  if(!cat.americanoFixtureGenerado)return(
+    <div>
+      <div className="sec-hdr"><div className="sec-title">🎾 Americano Parejas</div></div>
+      <div className="card" style={{textAlign:"center",padding:40}}>
+        <div className="empty-ico">🎾</div>
+        <p style={{color:"var(--muted)",marginBottom:16}}>{N<2?"Inscribi al menos 2 parejas":`${N} parejas · ${N*(N-1)/2} partidos · ${numRondas} rondas`}</p>
+        {isAdmin&&N>=2&&<button className="btn btn-primary" onClick={onGenerarFixture}>⚡ Generar Fixture Americano</button>}
+      </div>
+    </div>
+  );
+  return(
+    <div>
+      <div className="sec-hdr">
+        <div className="sec-title">🎾 Americano Parejas</div>
+        <div className="row g8 wrap">
+          <span className="badge bb">{totalDone}/{partidos.length}</span>
+          {pointsAwarded&&<span className="badge bg">Puntos otorgados</span>}
+          {isAdmin&&totalDone===partidos.length&&partidos.length>0&&<button className="btn btn-cyan btn-sm" onClick={onOtorgarPuntos}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
+        </div>
+      </div>
+      <div className="grid2">
+        <div>
+          <div className="card-title mb8">Rondas</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:12}}>
+            {Array.from({length:numRondas},(_,r)=>{
+              const done=partidos.filter(m=>m.ronda===r).every(m=>m.done);
+              return<button key={r} className={"btn btn-sm "+(rondaIdx===r?"btn-primary":"btn-ghost")} onClick={()=>{setRondaIdx(r);setEditId(null);}}>R{r+1}{done?" ✓":""}</button>;
+            })}
+          </div>
+          {rondaPartidos.map(m=>{
+            const p1=byId[m.p1id],p2=byId[m.p2id];
+            if(!p1||!p2)return null;
+            const isEdit=editId===m.id;
+            return(
+              <div key={m.id} className="card mb8">
+                <div style={{fontSize:12,marginBottom:6}}>
+                  <span style={{fontWeight:600,color:"var(--text)"}}>{p1.nombre}</span>
+                  <span style={{color:"var(--muted)",margin:"0 6px"}}>vs</span>
+                  <span style={{fontWeight:600,color:"var(--text)"}}>{p2.nombre}</span>
+                </div>
+                {m.done&&!isEdit&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontFamily:"Oswald",fontWeight:700,fontSize:22,color:m.juegosA>m.juegosB?"var(--accent)":"var(--text)"}}>{m.juegosA}</span>
+                    <span style={{color:"var(--muted)"}}>-</span>
+                    <span style={{fontFamily:"Oswald",fontWeight:700,fontSize:22,color:m.juegosB>m.juegosA?"var(--accent)":"var(--text)"}}>{m.juegosB}</span>
+                    {isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:"auto"}} onClick={()=>{setEditId(m.id);setFA(String(m.juegosA));setFB(String(m.juegosB));}}>✏️</button>}
+                  </div>
+                )}
+                {(!m.done||isEdit)&&isAdmin&&(
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+                    <input className="inp score-inp" type="number" min={0} max={99} value={isEdit?fA:""} placeholder="-" style={{width:50,textAlign:"center"}} onChange={e=>{setEditId(m.id);setFA(e.target.value);if(!isEdit)setFB("");}}/>
+                    <span style={{color:"var(--muted)"}}>-</span>
+                    <input className="inp score-inp" type="number" min={0} max={99} value={isEdit?fB:""} placeholder="-" style={{width:50,textAlign:"center"}} onChange={e=>{setEditId(m.id);setFB(e.target.value);if(!isEdit)setFA("");}}/>
+                    {isEdit&&<><button className="btn btn-primary btn-sm" onClick={handleSave}>Guardar</button><button className="btn btn-ghost btn-sm" onClick={()=>{setEditId(null);setFA("");setFB("");}}>X</button></>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div>
+          <div className="card-title mb8">Posiciones</div>
+          <table className="tbl">
+            <thead><tr><th>#</th><th>Pareja</th><th>G</th><th>P</th><th>Dif</th><th>Pts</th></tr></thead>
+            <tbody>
+              {standings.map((s,i)=>{
+                const pos=i+1,pts=POSPTS[pos]||5,dif=s.ganados-s.perdidos,p=byId[s.id];
+                return<tr key={s.id}>
+                  <td style={{fontFamily:"Oswald",fontWeight:700}}>{pos}</td>
+                  <td><div className="em">{s.nombre}</div><div style={{fontSize:10,color:"var(--muted)"}}>{p?.j1nombre||p?.j1} · {p?.j2nombre||p?.j2}</div></td>
+                  <td style={{color:"var(--accent)",fontWeight:600}}>{s.ganados}</td>
+                  <td style={{color:"var(--muted)"}}>{s.perdidos}</td>
+                  <td style={{fontFamily:"Oswald",fontWeight:700,color:dif>=0?"var(--accent)":"var(--danger)"}}>{dif>=0?"+":""}{dif}</td>
+                  <td style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:15}}>{pts}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TABS=[
-  {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideAmInd:true},
+  {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
   {id:"inscripcion",label:"👥 Inscripción",adminOnly:true},
-  {id:"fixture",label:"📅 Fixture",hideAmInd:true},
-  {id:"resultados",label:"⚡ Resultados",hideAmInd:true},
-  {id:"posiciones",label:"📊 Posiciones",hideAmInd:true},
-  {id:"llave",label:"🏆 Llave Final",hideAmInd:true},
-  {id:"americano",label:"🎯 Americano",showAmInd:true},
+  {id:"fixture",label:"📅 Fixture",hideRR:true},
+  {id:"resultados",label:"⚡ Resultados",hideRR:true},
+  {id:"posiciones",label:"📊 Posiciones",hideRR:true},
+  {id:"llave",label:"🏆 Llave Final",hideRR:true},
+  {id:"americano",label:"🎯 Americano",showRR:true},
   {id:"agenda",label:"📋 Agenda",adminOnly:true},
 ];
-
 export default function App() {
   const [torneos,setTorneos]=useState([]);
   const [jugadores,setJugadores]=useState({});
@@ -2135,6 +2250,68 @@ export default function App() {
     catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
   }
 
+  async function generarFixtureAmericanoPareja(){
+    const pairs=activeCat.parejas;const N=pairs.length;if(N<2)return;
+    const sorted=[...pairs].sort((a,b)=>{
+      const pA=(jugadores[a.j1cedula]?.totalPts||0)+(jugadores[a.j2cedula]?.totalPts||0);
+      const pB=(jugadores[b.j1cedula]?.totalPts||0)+(jugadores[b.j2cedula]?.totalPts||0);
+      return pB-pA;
+    });
+    const M=N%2===0?N:N+1;
+    const ids=sorted.map(p=>p.id);if(M>N)ids.push("__bye__");
+    const idxs=Array.from({length:M},(_,i)=>i);
+    const partidos=[];
+    for(let r=0;r<M-1;r++){
+      for(let i=0;i<M/2;i++){
+        const i1=idxs[i],i2=idxs[M-1-i];
+        if(ids[i1]!=="__bye__"&&ids[i2]!=="__bye__")
+          partidos.push({id:uid(),ronda:r,p1id:ids[i1],p2id:ids[i2],juegosA:null,juegosB:null,done:false});
+      }
+      const last=idxs[M-1];for(let i=M-1;i>1;i--)idxs[i]=idxs[i-1];idxs[1]=last;
+    }
+    updateCat(activeCId,c=>({...c,americanoPartidos:partidos,americanoFixtureGenerado:true}));
+    await updateDoc(doc(db,"categorias",activeCId),{americanoPartidos:partidos,americanoFixtureGenerado:true});
+  }
+
+  async function otorgarPuntosAmericanoPareja(){
+    if(!activeCat||!activeTorneo)return;
+    const standings=calcAmericanoParejasStandings(activeCat);
+    const POSPTS=[0,30,20,15,15,10,10,5,5];
+    const stageByPos=["","campeon","finalista","semifinal","semifinal","cuartos","cuartos","zona","zona"];
+    const nxt={...jugadores};const cedulasModificadas=new Set();
+    standings.forEach((s,idx)=>{
+      const pos=idx+1,pts=POSPTS[pos]||5,stage=stageByPos[pos]||"zona";
+      const pair=activeCat.parejas.find(p=>p.id===s.id);if(!pair)return;
+      [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
+        if(!cedula)return;
+        const nombre=cedula===pair.j1cedula?(pair.j1nombre||pair.j1):(pair.j2nombre||pair.j2);
+        if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
+        const prevEntry=nxt[cedula].historial.find(h=>(h.torneoId===activeTId&&h.catId===activeCId)||(activeTorneo.edicion&&h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId));
+        const nuevaEntry={torneoId:activeTId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion,catId:activeCId,catNombre:activeCat.nombre,stage,pts,fecha:activeTorneo.fecha||""};
+        if(prevEntry){const diff=pts-(prevEntry.pts||0);nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+diff,historial:nxt[cedula].historial.map(h=>h===prevEntry?nuevaEntry:h)};}
+        else{nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+pts,historial:[...nxt[cedula].historial,nuevaEntry]};}
+        cedulasModificadas.add(cedula);
+      });
+    });
+    let ptsFallen=0;
+    if(activeTorneo.edicion){
+      Object.values(nxt).forEach(jug=>{
+        if(cedulasModificadas.has(jug.cedula))return;
+        const prevIdx=(jug.historial||[]).findIndex(h=>h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId);
+        if(prevIdx===-1)return;
+        const prevPts=jug.historial[prevIdx].pts||0;
+        nxt[jug.cedula]={...jug,totalPts:Math.max(0,jug.totalPts-prevPts),historial:jug.historial.filter((_,i)=>i!==prevIdx)};
+        cedulasModificadas.add(jug.cedula);ptsFallen++;
+      });
+    }
+    setJugadores(nxt);updateCat(activeCId,c=>({...c,pointsAwarded:true}));
+    const batch=writeBatch(db);
+    [...cedulasModificadas].forEach(cedula=>batch.set(doc(db,"jugadores",cedula),nxt[cedula]));
+    batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
+    try{await batch.commit();alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
+    catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
+  }
+
   async function actualizarCategoriaJugador(cedula,categoria){
     try{
       const updated={...jugadores[cedula],categoria};
@@ -2241,7 +2418,7 @@ export default function App() {
               <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);
                 const autocat=(!isAdmin&&isPlayer&&playerCedula)?t.categorias?.find(c=>c.parejas?.some(p=>p.j1cedula===playerCedula||p.j2cedula===playerCedula)):null;
                 setActiveCId(autocat?.id||null);
-                setSubview(isAdmin?"inscripcion":c.modalidad==="americano_individual"?"americano":"mitorneo");}}>
+                setSubview(isAdmin?"inscripcion":["americano_individual","americano_pareja"].includes(c.modalidad)?"americano":"mitorneo");}}>
                 <div className="t-card-name">{t.nombre}</div>
                 <div className="t-card-meta">{t.fecha||"Sin fecha"}{t.edicion&&` · ${t.edicion}`}</div>
                 <div className="row wrap g8" style={{marginBottom:6}}>
@@ -2280,8 +2457,8 @@ export default function App() {
     {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 
-  const isAmericanoInd=activeCat?.modalidad==="americano_individual";
-  const tabsVisibles=TABS.filter(tab=>{if(tab.adminOnly)return isAdmin;if(tab.playerOnly)return !isAdmin&&isPlayer;if(tab.showAmInd)return isAmericanoInd;if(tab.hideAmInd)return !isAmericanoInd;return true;});
+  const isRoundRobin=["americano_individual","americano_pareja"].includes(activeCat?.modalidad);
+  const tabsVisibles=TABS.filter(tab=>{if(tab.adminOnly)return isAdmin;if(tab.playerOnly)return !isAdmin&&isPlayer;if(tab.showRR)return isRoundRobin;if(tab.hideRR)return !isRoundRobin;return true;});
   return(<><style>{CSS}</style><div className="app">
     <header className="hdr">
       <button className="btn btn-ghost btn-sm" onClick={()=>setActiveTId(null)}>← Torneos</button>
@@ -2314,7 +2491,8 @@ export default function App() {
         <>
           {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
-          {subview==="americano"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
+          {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
+          {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntosAmericanoPareja} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
@@ -2327,7 +2505,7 @@ export default function App() {
     {modal?.type==="newC"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nueva Categoría</div>
       <div className="col mb12"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Primera, Damas, Mixtos..." value={cForm.nombre} onChange={e=>setCForm(p=>({...p,nombre:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&crearCategoria()}/></div>
-      <div className="col mb16"><label className="lbl">Modalidad</label><select className="inp" value={cForm.modalidad} onChange={e=>setCForm(p=>({...p,modalidad:e.target.value}))}><option value="estandar">Estándar (Zonas + Llave)</option><option value="americano_zonas">🎯 Americano (Zonas + Llave, 1 set)</option><option value="americano_individual">🏓 Americano Individual (todos con todos)</option></select></div>
+      <div className="col mb16"><label className="lbl">Modalidad</label><select className="inp" value={cForm.modalidad} onChange={e=>setCForm(p=>({...p,modalidad:e.target.value}))}><option value="estandar">Estándar (Zonas + Llave)</option><option value="americano_zonas">🎯 Americano (Zonas + Llave, 1 set)</option><option value="americano_individual">🏓 Americano Individual (todos con todos)</option><option value="americano_pareja">🎾 Americano Parejas (todos contra todos, 1 set)</option></select></div>
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearCategoria}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
     </div></div>}
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
