@@ -878,7 +878,7 @@ function Resultados({ cat, onOpen, isAdmin, onEditMatch }) {
           <div key={g.id} className="card">
             <div className="card-title">{g.nombre}</div>
             <table className="tbl">
-              <thead><tr><th>Cód</th><th>Pareja 1</th><th>Resultado</th><th>Pareja 2</th><th>Horario</th>{isAdmin&&<th></th>}<th></th></tr></thead>
+              <thead><tr><th>Cód</th><th>Pareja 1</th><th>Resultado</th><th>Pareja 2</th><th>Horario</th>{isAdmin&&<th></th>}{isAdmin&&<th></th>}</tr></thead>
               <tbody>
                 {gm.map(m=>{
                   const p1=m.p1id?byId[m.p1id]:null,p2=m.p2id?byId[m.p2id]:null;
@@ -891,7 +891,7 @@ function Resultados({ cat, onOpen, isAdmin, onEditMatch }) {
                       <td className={w===2?"em":""} style={w===2?{color:"var(--accent)",fontWeight:700}:{}}>{pend?"Por definir":(p2?.nombre||"?")}</td>
                       <td style={{fontSize:11,color:"var(--muted)"}}>{m.dia} {m.hora} · {m.cancha}</td>
                       {isAdmin&&<td><button className="btn btn-ghost btn-xs" onClick={()=>onEditMatch(m)}>⚙️</button></td>}
-                      <td><button className="btn btn-secondary btn-sm" onClick={()=>isAdmin&&onOpen(m)} disabled={pend||!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>{m.done?"✏️":(pend?"⏳":"+ Resultado")}</button></td>
+                      {isAdmin&&<td><button className="btn btn-secondary btn-sm" onClick={()=>onOpen(m)} disabled={pend} style={{cursor:pend?'not-allowed':'pointer'}}>{m.done?"✏️":(pend?"⏳":"+ Resultado")}</button></td>}
                     </tr>
                   );
                 })}
@@ -974,7 +974,7 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
         <div className="sec-title">Llave Final</div>
         <div className="row g8 wrap">
           {cat.knockoutGenerated&&<span className="badge bb">{koDone}/{koTotal}</span>}
-          {koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
+          {isAdmin&&koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
           {pointsAwarded&&<span className="badge bg">✓ Puntos otorgados</span>}
           {isAdmin&&<button className={`btn btn-sm ${puedeGenerar?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!puedeGenerar} title={puedeGenerar?"Generar llave":"Generá el fixture primero"} style={{opacity:puedeGenerar?1:0.4,cursor:puedeGenerar?'pointer':'not-allowed'}}>{cat.knockoutGenerated?(todasCompletas?"🔄 Regenerar Llave":"🔄 Actualizar Llave"):(todasCompletas?"🏆 Generar Llave Final":"⚡ Llave Provisional")}</button>}
         </div>
@@ -987,7 +987,7 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
           </div>
           {todasCompletas&&<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(61,255,160,.06)",border:"1px solid rgba(61,255,160,.2)",color:"var(--accent)"}}>✓ Zonas completadas. La llave es definitiva.</div>}
           {!todasCompletas&&cat.knockoutGenerated&&<div className="alert alert-warn" style={{marginTop:12,marginBottom:0}}>⚡ Llave provisional — se actualiza automáticamente al completar cada zona.</div>}
-          {!todasCompletas&&!cat.knockoutGenerated&&<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(0,212,255,.05)",border:"1px solid rgba(0,212,255,.2)",color:"var(--accent2)"}}>💡 Podés generar una llave provisional para planificar los horarios.</div>}
+          {!todasCompletas&&!cat.knockoutGenerated&&(isAdmin?<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(0,212,255,.05)",border:"1px solid rgba(0,212,255,.2)",color:"var(--accent2)"}}>💡 Podés generar una llave provisional para planificar los horarios.</div>:<div className="alert" style={{marginTop:12,marginBottom:0,background:"rgba(0,212,255,.05)",border:"1px solid rgba(0,212,255,.2)",color:"var(--accent2)"}}>⏳ La llave final se publicará al completar todas las zonas.</div>)}
         </div>
       )}
       {campeon&&(
@@ -1240,7 +1240,7 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
       ):(
         <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingGenero(j.cedula);}} title="Género" style={{color:getGenero(j)==="M"?"var(--accent2)":getGenero(j)==="F"?"#ff64b4":"var(--muted)"}}>{getGenero(j)==="M"?"♂":getGenero(j)==="F"?"♀":"⚧"}</button>
       ))}
-      <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
+      {isAdmin&&<button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)}>🗑️</button>}
     </div>
   );
   const renderCol=(groups,color)=>{
@@ -1458,6 +1458,8 @@ export default function App() {
   const [cForm,setCForm]=useState({nombre:""});
   const [editingName,setEditingName]=useState(false);
   const [editingNameVal,setEditingNameVal]=useState("");
+  const [editingEdicion,setEditingEdicion]=useState(false);
+  const [editingEdicionVal,setEditingEdicionVal]=useState("");
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState(null);
   const [refreshing,setRefreshing]=useState(false);
@@ -1626,6 +1628,13 @@ export default function App() {
     if(!editingNameVal.trim())return;
     await updateDoc(doc(db,"torneos",activeTId),{nombre:editingNameVal.trim()});
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,nombre:editingNameVal.trim()}:t));setEditingName(false);
+  }
+
+  async function guardarEdicionTorneo(){
+    const val=editingEdicionVal.trim();
+    await updateDoc(doc(db,"torneos",activeTId),{edicion:val});
+    setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,edicion:val}:t));
+    setEditingEdicion(false);
   }
 
   async function crearCategoria(){
@@ -1834,6 +1843,24 @@ export default function App() {
         if(derivedCat&&!nxt[cedula].categoria)nxt[cedula]={...nxt[cedula],categoria:derivedCat};
       });
     });
+    // Puntos caen: jugadores con historial de esta edición que no compitieron esta vez
+    let ptsFallen=0;
+    if(activeTorneo.edicion){
+      Object.values(nxt).forEach(jug=>{
+        if(cedulasModificadas.has(jug.cedula))return;
+        const prevIdx=(jug.historial||[]).findIndex(h=>
+          h.torneoEdicion===activeTorneo.edicion&&
+          h.catNombre===activeCat.nombre&&
+          h.torneoId!==activeTId
+        );
+        if(prevIdx===-1)return;
+        const prevPts=jug.historial[prevIdx].pts||0;
+        nxt[jug.cedula]={...jug,totalPts:Math.max(0,jug.totalPts-prevPts),
+          historial:jug.historial.filter((_,i)=>i!==prevIdx)};
+        cedulasModificadas.add(jug.cedula);
+        ptsFallen++;
+      });
+    }
     setJugadores(nxt);
     updateCat(activeCId,c=>({...c,pointsAwarded:true}));
     const batch=writeBatch(db);
@@ -1842,7 +1869,7 @@ export default function App() {
     batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
     try{
       await batch.commit();
-      alert("✅ Puntos guardados correctamente");
+      alert(ptsFallen>0?"✅ Puntos guardados. "+ptsFallen+" jugador(es) perdieron puntos de la edición anterior.":"✅ Puntos guardados correctamente");
     }catch(err){
       console.error("Error guardando puntos:",err);
       alert("❌ Error al guardar los puntos: "+err.message);
@@ -1941,9 +1968,14 @@ export default function App() {
       {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
         <>
           <div className="hero">
-            <div className="hero-title">GESTIÓN DE<br/><span>TORNEOS</span></div>
-            <div className="hero-sub">Creá, organizá y gestioná todos tus torneos de pádel</div>
-            <button className="btn btn-primary" onClick={()=>setModal({type:"newT"})} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>+ Nuevo Torneo</button>
+            {isAdmin?(<>
+              <div className="hero-title">GESTIÓN DE<br/><span>TORNEOS</span></div>
+              <div className="hero-sub">Creá, organizá y gestioná todos tus torneos de pádel</div>
+              <button className="btn btn-primary" onClick={()=>setModal({type:"newT"})}>+ Nuevo Torneo</button>
+            </>):(<>
+              <div className="hero-title" style={{fontSize:"clamp(20px,5vw,30px)"}}>TORNEOS<br/><span>DISPONIBLES</span></div>
+              <div className="hero-sub">Seleccioná tu torneo para ver el fixture y los resultados</div>
+            </>)}
           </div>
           {torneos.length===0?<div className="empty"><div className="empty-ico">🎾</div><p>No hay torneos creados aún</p></div>:(
             <div className="grid2">{torneos.map(t=>(
@@ -1968,7 +2000,7 @@ export default function App() {
     {modal?.type==="newT"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nuevo Torneo</div>
       <div className="col mb12"><label className="lbl">Nombre completo</label><input className="inp" autoFocus placeholder="ej: Torneo Aniversario Box 2026" value={tForm.nombre} onChange={e=>setTForm(p=>({...p,nombre:e.target.value}))}/></div>
-      <div className="col mb12"><label className="lbl">Identificador de edición</label><input className="inp" placeholder="ej: Torneo Aniversario (igual cada año)" value={tForm.edicion} onChange={e=>setTForm(p=>({...p,edicion:e.target.value}))}/></div>
+      <div className="col mb12"><label className="lbl">Identificador de edición</label><input className="inp" placeholder="ej: Torneo Aniversario (igual cada año)" value={tForm.edicion} onChange={e=>setTForm(p=>({...p,edicion:e.target.value}))} list="editions-new-dl"/><datalist id="editions-new-dl">{[...new Set(torneos.map(t=>t.edicion).filter(Boolean))].map(e=><option key={e} value={e}/>)}</datalist></div>
       <div className="col mb12"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={e=>setTForm(p=>({...p,fecha:e.target.value}))}/></div>
       <div className="col mb12"><label className="lbl">Tipo de categoria</label>
         <select className="inp" value={tForm.catTipo} onChange={e=>setTForm(p=>({...p,catTipo:e.target.value,catNum:""}))}>
@@ -1992,12 +2024,21 @@ export default function App() {
   return(<><style>{CSS}</style><div className="app">
     <header className="hdr">
       <button className="btn btn-ghost btn-sm" onClick={()=>setActiveTId(null)}>← Torneos</button>
-      <div className="hdr-name-wrap">
-        {editingName?(
-          <><input className="edit-inline" autoFocus value={editingNameVal} onChange={e=>setEditingNameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")guardarNombreTorneo();if(e.key==="Escape")setEditingName(false);}}/><button className="icon-btn" onClick={guardarNombreTorneo}>✓</button><button className="icon-btn" onClick={()=>setEditingName(false)}>✕</button></>
-        ):(
-          <><div className="hdr-name">{activeTorneo?.nombre}</div>{isAdmin&&<button className="icon-btn" onClick={()=>{setEditingNameVal(activeTorneo?.nombre||"");setEditingName(true);}}>✏️</button>}</>
-        )}
+      <div className="hdr-name-wrap" style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          {editingName?(
+            <><input className="edit-inline" autoFocus value={editingNameVal} onChange={e=>setEditingNameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")guardarNombreTorneo();if(e.key==="Escape")setEditingName(false);}}/><button className="icon-btn" onClick={guardarNombreTorneo}>✓</button><button className="icon-btn" onClick={()=>setEditingName(false)}>✕</button></>
+          ):(
+            <><div className="hdr-name">{activeTorneo?.nombre}</div>{isAdmin&&!editingEdicion&&<button className="icon-btn" onClick={()=>{setEditingNameVal(activeTorneo?.nombre||"");setEditingName(true);}}>✏️</button>}</>
+          )}
+        </div>
+        {!editingName&&<div style={{display:"flex",alignItems:"center",gap:4}}>
+          {editingEdicion?(
+            <><input style={{background:"transparent",border:"1px solid var(--border)",borderRadius:4,color:"var(--text)",fontSize:11,padding:"2px 6px",outline:"none",width:160}} autoFocus value={editingEdicionVal} list="editions-hdr-dl" onChange={e=>setEditingEdicionVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")guardarEdicionTorneo();if(e.key==="Escape")setEditingEdicion(false);}}/><datalist id="editions-hdr-dl">{[...new Set(torneos.filter(t=>t.id!==activeTId).map(t=>t.edicion).filter(Boolean))].map(e=><option key={e} value={e}/>)}</datalist><button className="icon-btn" onClick={guardarEdicionTorneo}>✓</button><button className="icon-btn" onClick={()=>setEditingEdicion(false)}>✕</button></>
+          ):(
+            <><span style={{fontSize:10,color:"var(--muted)"}}>{activeTorneo?.edicion||<em style={{opacity:.5,fontStyle:"italic"}}>sin edición</em>}</span>{isAdmin&&<button className="icon-btn" style={{fontSize:10}} onClick={()=>{setEditingEdicionVal(activeTorneo?.edicion||"");setEditingEdicion(true);}}>✏️</button>}</>
+          )}
+        </div>}
       </div>
       <div className="nav-tabs" style={{marginLeft:"auto"}}>{tabsVisibles.map(tab=><button key={tab.id} className={`nav-tab${subview===tab.id?" on":""}`} onClick={()=>setSubview(tab.id)}>{tab.label}</button>)}</div>
       <button className="btn btn-ghost btn-xs" onClick={()=>loadData(true)} disabled={refreshing} style={{marginLeft:4}}>{refreshing?"⏳":"🔄"}</button>
