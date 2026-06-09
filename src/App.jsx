@@ -960,7 +960,6 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
   }):[];
   const todasCompletas=zonaStatus.length>0&&zonaStatus.every(z=>z.completa);
   const puedeGenerar=cat.fixtureGenerado&&cat.grupos.length>0;
-  const esProvisorio=puedeGenerar&&!todasCompletas;
   const roundNames=getRoundNames(cat.knockoutRounds);
   // Los horarios ya vienen calculados y guardados en cat.knockoutRounds
   const knockoutRoundsWithSchedules=cat.knockoutRounds||[];
@@ -1564,6 +1563,8 @@ export default function App() {
     const result=calcClassified(catData,true);
     if(!result.classified?.length)return;
     const{classified,bracketSize}=result;
+    // IDs de todos los clasificados actuales — para validar resultados preservados
+    const classifiedIds=new Set(classified.map(c=>c.pairId));
     const newRounds=buildDynamicBracket(classified,bracketSize);
     const existingRounds=catData.knockoutRounds||[];
     const existingSize=existingRounds[0]?existingRounds[0].length*2:0;
@@ -1572,10 +1573,16 @@ export default function App() {
       finalRounds=newRounds;
     }else{
       // Merge: preservar resultados jugados, ids y enlaces (prevIds).
+      // Solo se preserva si AMBOS equipos siguen entre los clasificados actuales;
+      // si alguno ya no clasifica, el resultado se descarta (evita resultados fantasma).
       finalRounds=newRounds.map((round,ri)=>round.map((match,mi)=>{
         const old=existingRounds[ri]?.[mi];
         if(!old)return match;
-        if(old.done&&!old.auto)return{...old,p1label:match.p1label,p2label:match.p2label,p1provisorio:match.p1provisorio,p2provisorio:match.p2provisorio};
+        if(old.done&&!old.auto){
+          const p1ok=!old.p1id||classifiedIds.has(old.p1id);
+          const p2ok=!old.p2id||classifiedIds.has(old.p2id);
+          if(p1ok&&p2ok)return{...old,p1label:match.p1label,p2label:match.p2label,p1provisorio:match.p1provisorio,p2provisorio:match.p2provisorio};
+        }
         return{...match,id:old.id,prevIds:old.prevIds||match.prevIds};
       }));
       // Repropagar ganadores de partidos jugados hacia las rondas siguientes
@@ -1763,9 +1770,11 @@ export default function App() {
       return{...c,partidos:np};
     });
     setModal(null);
-    await updateDoc(doc(db,"partidos",matchId),{...result,winner});
-    if(updatedC)await updateDoc(doc(db,"partidos",updatedC.id),updatedC);
-    if(updatedD)await updateDoc(doc(db,"partidos",updatedD.id),updatedD);
+    const batchR=writeBatch(db);
+    batchR.update(doc(db,"partidos",matchId),{...result,winner});
+    if(updatedC)batchR.update(doc(db,"partidos",updatedC.id),updatedC);
+    if(updatedD)batchR.update(doc(db,"partidos",updatedD.id),updatedD);
+    await batchR.commit();
     if(cat.knockoutGenerated){
       let updPart=cat.partidos.map(p=>p.id===matchId?{...p,...result,winner}:p);
       if(updatedC)updPart=updPart.map(p=>p.id===updatedC.id?updatedC:p);
