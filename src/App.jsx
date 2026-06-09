@@ -1496,7 +1496,7 @@ function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,o
     const ced=cedula.trim();if(!ced)return;
     if(jugadores.some(j=>j.cedula===ced)){alert("Este jugador ya esta inscripto.");return;}
     const j=jugadoresGlobal[ced];
-    setFound(j?{cedula:ced,nombre:j.nombre}:{cedula:ced,nombre:""});
+    setFound(j?{cedula:ced,nombre:j.nombre,exists:true}:{cedula:ced,nombre:"",exists:false});
   };
   return(
     <div>
@@ -1516,7 +1516,7 @@ function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,o
             <input className="inp f1" placeholder="Cedula del jugador" value={cedula} onChange={e=>setCedula(e.target.value)} onKeyDown={e=>e.key==="Enter"&&buscar()}/>
             <button className="btn btn-secondary btn-sm" onClick={buscar}>Buscar</button>
           </div>
-          {found&&(found.nombre?(
+          {found&&(found.exists?(
             <div className="card mt8 row g8"><div className="f1" style={{fontWeight:600}}>{found.nombre}</div><button className="btn btn-primary btn-sm" onClick={()=>{onAgregar(found);setCedula("");setFound(null);}}>+ Agregar</button></div>
           ):(
             <div className="card mt8">
