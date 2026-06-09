@@ -1144,6 +1144,7 @@ function AgendaView({ torneo, allPartidos, isAdmin, onEditMatch, onToggleBloqueo
 
 const CAT_LABELS={1:"1ra",2:"2da",3:"3ra",4:"4ta",5:"5ta",6:"6ta",7:"7ma",8:"8va"};
 const CAT_COLORS={1:"rgba(255,80,100,.15)",2:"rgba(255,140,60,.15)",3:"rgba(255,203,71,.15)",4:"rgba(180,100,255,.15)",5:"rgba(0,212,255,.15)",6:"rgba(61,255,160,.15)",7:"rgba(100,200,255,.15)",8:"rgba(100,130,160,.15)"};
+const CAT_NUM=Object.fromEntries(Object.entries(CAT_LABELS).map(([k,v])=>[v.toLowerCase(),Number(k)]));
 
 // Enlaces oficiales FIP — actualizar acá si la federación cambia alguna URL
 const GENERO_LABELS={M:"Hombres",F:"Mujeres"};
@@ -1187,60 +1188,102 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
   const [editingCat,setEditingCat]=useState(null);
   const [editingGenero,setEditingGenero]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
-  const listM=list.filter(j=>j.genero==="M");
-  const listF=list.filter(j=>j.genero==="F");
-  const listNoG=list.filter(j=>j.genero!=="M"&&j.genero!=="F");
-  const displayItems=[];
-  if(listM.length){displayItems.push({type:'hdr',label:'Hombres',color:GENERO_COLORS.M});listM.forEach((j,i)=>displayItems.push({type:'player',j,rank:i+1}));}
-  if(listF.length){displayItems.push({type:'hdr',label:'Mujeres',color:GENERO_COLORS.F});listF.forEach((j,i)=>displayItems.push({type:'player',j,rank:i+1}));}
-  if(listNoG.length){displayItems.push({type:'hdr',label:'Sin género',color:null});listNoG.forEach((j,i)=>displayItems.push({type:'player',j,rank:i+1}));}
   const jug=sel?jugadores[sel]:null;
   const handleDelete=(cedula,e)=>{e.stopPropagation();if(!isAdmin)return;if(window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)){onDeleteJugador(cedula);if(sel===cedula)setSel(null);}};
   const handleCatChange=(cedula,val)=>{onUpdateCategoria(cedula,val?Number(val):null);setEditingCat(null);};
+  // Derivar género: override manual primero, luego del historial
+  const getGenero=(j)=>{
+    if(j.genero)return j.genero;
+    const cats=(j.historial||[]).map(h=>(h.catNombre||"").toLowerCase());
+    if(cats.some(c=>c.includes("damas")))return "F";
+    if(cats.some(c=>c.includes("caballeros")))return "M";
+    return null;
+  };
+  // Clave de categoría para agrupar: usa campo categoria si está definido, sino el último historial
+  const getCatKey=(j,genero)=>{
+    if(j.categoria){const label=CAT_LABELS[j.categoria]||"";const gl=genero==="F"?"Damas":genero==="M"?"Caballeros":"";return gl?`${label} ${gl}`:label;}
+    const hist=j.historial||[];if(!hist.length)return null;
+    return hist[hist.length-1].catNombre||null;
+  };
+  const parseCatNum=(key)=>{const m=(key||"").match(/(\d+)/);return m?parseInt(m[1]):99;};
+  const groupsM={},groupsF={},noGen=[];
+  list.forEach(j=>{
+    const g=getGenero(j),catKey=getCatKey(j,g)||"Sin categoría";
+    if(g==="M"){if(!groupsM[catKey])groupsM[catKey]=[];groupsM[catKey].push(j);}
+    else if(g==="F"){if(!groupsF[catKey])groupsF[catKey]=[];groupsF[catKey].push(j);}
+    else noGen.push(j);
+  });
+  const sortKeys=(obj)=>Object.keys(obj).sort((a,b)=>parseCatNum(a)-parseCatNum(b));
+  const renderRow=(j,rank)=>(
+    <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)",padding:"8px 10px"}} onClick={()=>setSel(sel===j.cedula?null:j.cedula)}>
+      <div className={`rank-pos${rank===1?" p1":rank===2?" p2":rank===3?" p3":""}`} style={{fontSize:16,minWidth:24}}>{rank}</div>
+      <div className="f1" style={{minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.nombre}</div>
+        <div style={{fontSize:10,color:"var(--muted)"}}>CI: {j.cedula}</div>
+      </div>
+      <div style={{fontFamily:"Oswald",fontWeight:700,fontSize:18,color:"var(--accent)",flexShrink:0,textAlign:"right"}}>
+        {j.totalPts}<span style={{fontFamily:"DM Sans",fontSize:8,color:"var(--muted)",display:"block",letterSpacing:1,textTransform:"uppercase"}}>pts</span>
+      </div>
+      {isAdmin&&(editingCat===j.cedula?(
+        <select className="inp" style={{width:70,fontSize:10,padding:"2px 4px"}} autoFocus value={j.categoria||""} onChange={e=>{e.stopPropagation();handleCatChange(j.cedula,e.target.value);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingCat(null)}>
+          <option value="">—</option>
+          {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{CAT_LABELS[n]}</option>)}
+        </select>
+      ):(
+        <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Categoría">🏷️</button>
+      ))}
+      {isAdmin&&(editingGenero===j.cedula?(
+        <select className="inp" style={{width:78,fontSize:10,padding:"2px 4px"}} autoFocus value={j.genero||""} onChange={e=>{e.stopPropagation();onUpdateGenero(j.cedula,e.target.value||null);setEditingGenero(null);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingGenero(null)}>
+          <option value="">Auto</option>
+          <option value="M">Cab.</option>
+          <option value="F">Dam.</option>
+        </select>
+      ):(
+        <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingGenero(j.cedula);}} title="Género" style={{color:getGenero(j)==="M"?"var(--accent2)":getGenero(j)==="F"?"#ff64b4":"var(--muted)"}}>{getGenero(j)==="M"?"♂":getGenero(j)==="F"?"♀":"⚧"}</button>
+      ))}
+      <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
+    </div>
+  );
+  const renderCol=(groups,color)=>{
+    const keys=sortKeys(groups);
+    if(!keys.length)return <div style={{color:"var(--muted)",fontSize:12,padding:"12px 8px",textAlign:"center"}}>Sin jugadores aún</div>;
+    return keys.map(key=>(
+      <div key={key} style={{marginBottom:14}}>
+        <div style={{fontSize:9,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:color?.text||"var(--muted)",padding:"3px 8px",background:color?.bg||"transparent",borderRadius:5,marginBottom:6,display:"inline-block"}}>{key.replace(/\s*(caballeros|damas)\s*/i,"").trim()||key}</div>
+        {groups[key].map((j,i)=>renderRow(j,i+1))}
+      </div>
+    ));
+  };
+  const colHdr=(label,color,count)=>(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 12px",borderRadius:9,background:color.bg,border:`1px solid ${color.border}`,marginBottom:12,fontFamily:"Oswald",fontSize:13,fontWeight:600,letterSpacing:2,textTransform:"uppercase",color:color.text}}>
+      {label}<span style={{fontFamily:"DM Sans",fontSize:11,fontWeight:400,letterSpacing:0,opacity:.7}}>{count}</span>
+    </div>
+  );
   return (
     <div>
-      <div className="sec-hdr"><div className="sec-title">Ranking de Jugadores</div><span className="badge bb">{list.length} registrados</span></div>
+      <div className="sec-hdr"><div className="sec-title">Ranking</div><span className="badge bb">{list.length} jugadores</span></div>
       {list.length===0?(
-        <div className="empty"><div className="empty-ico">🏅</div><p>Los jugadores aparecen aquí al finalizar un torneo y otorgar puntos</p><p style={{fontSize:12,marginTop:8}}>Ingresá la cédula de cada jugador en Inscripción</p></div>
+        <div className="empty"><div className="empty-ico">🏅</div><p>Los jugadores aparecen aquí al finalizar un torneo y otorgar puntos</p><p style={{fontSize:12,marginTop:8}}>El género y categoría se asignan automáticamente del nombre de la categoría</p></div>
       ):(
-        <div className="grid2">
-          <div>{displayItems.map((item,idx)=>{
-            if(item.type==='hdr')return <div key={idx} style={{padding:"5px 12px",borderRadius:8,marginBottom:4,marginTop:idx>0?8:0,background:item.color?item.color.bg:"rgba(60,80,100,.1)",border:`1px solid ${item.color?item.color.border:"var(--border)"}`,fontFamily:"Oswald",fontSize:10,fontWeight:600,letterSpacing:2,textTransform:"uppercase",color:item.color?item.color.text:"var(--muted)"}}>{item.label}</div>;
-            const {j,rank}=item;
-            return (
-              <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)"}} onClick={()=>setSel(sel===j.cedula?null:j.cedula)}>
-                <div className={`rank-pos${rank===1?" p1":rank===2?" p2":rank===3?" p3":""}`}>{rank}</div>
-                <div className="f1">
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div>
-                    {j.categoria&&<span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,background:CAT_COLORS[j.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[j.categoria]}</span>}
-                  </div>
-                  <div style={{fontSize:11,color:"var(--muted)"}}>CI: {j.cedula}</div>
-                </div>
-                <div className="col" style={{alignItems:"flex-end"}}><div className="rank-pts">{j.totalPts}</div><div className="rank-pts-lbl">puntos</div></div>
-                {isAdmin&&(editingCat===j.cedula?(
-                  <select className="inp" style={{width:80,fontSize:11,padding:"3px 6px"}} autoFocus value={j.categoria||""} onChange={e=>{e.stopPropagation();handleCatChange(j.cedula,e.target.value);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingCat(null)}>
-                    <option value="">Sin cat.</option>
-                    {[8,7,6,5,4,3,2,1].map(n=><option key={n} value={n}>{CAT_LABELS[n]}</option>)}
-                  </select>
-                ):(
-                  <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingCat(j.cedula);}} title="Editar categoria">🏷️</button>
-                ))}
-                {isAdmin&&(editingGenero===j.cedula?(
-                  <select className="inp" style={{width:90,fontSize:11,padding:"3px 6px"}} autoFocus value={j.genero||""} onChange={e=>{e.stopPropagation();onUpdateGenero(j.cedula,e.target.value||null);setEditingGenero(null);}} onClick={e=>e.stopPropagation()} onBlur={()=>setEditingGenero(null)}>
-                    <option value="">Sin género</option>
-                    <option value="M">Hombres</option>
-                    <option value="F">Mujeres</option>
-                  </select>
-                ):(
-                  <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingGenero(j.cedula);}} title="Género" style={{color:j.genero==="M"?"var(--accent2)":j.genero==="F"?"#ff64b4":"var(--muted)"}}>{j.genero==="M"?"♂":j.genero==="F"?"♀":"⚧"}</button>
-                ))}
-                <button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>🗑️</button>
-              </div>
-            );
-          })}</div>
-          <div>{jug?(
-            <div className="card" style={{position:"sticky",top:90}}>
+        <>
+          <div className="grid2">
+            <div>
+              {colHdr("♂ Caballeros",GENERO_COLORS.M,list.filter(j=>getGenero(j)==="M").length)}
+              {renderCol(groupsM,GENERO_COLORS.M)}
+            </div>
+            <div>
+              {colHdr("♀ Damas",GENERO_COLORS.F,list.filter(j=>getGenero(j)==="F").length)}
+              {renderCol(groupsF,GENERO_COLORS.F)}
+            </div>
+          </div>
+          {noGen.length>0&&(
+            <div style={{marginTop:16}}>
+              <div style={{fontSize:9,fontWeight:600,color:"var(--muted)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>⚧ Sin género ({noGen.length})</div>
+              <div className="grid2"><div>{noGen.map((j,i)=>renderRow(j,i+1))}</div><div/></div>
+            </div>
+          )}
+          {jug&&(
+            <div className="card" style={{marginTop:16}}>
               <div className="card-title">Historial — {jug.nombre}</div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
                 <div style={{fontSize:12,color:"var(--muted)"}}>CI: {jug.cedula}</div>
@@ -1255,13 +1298,12 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
                 </div>
               ))}
             </div>
-          ):<div className="empty"><div className="empty-ico">👆</div><p>Seleccioná un jugador</p></div>}</div>
-        </div>
+          )}
+        </>
       )}
     </div>
   );
 }
-
 function MiTorneo({ torneo, playerCedula }) {
   const DAY_SHORT={"JUEVES":"JUE","VIERNES":"VIE","SÁBADO":"SÁB","DOMINGO":"DOM"};
   if(!playerCedula)return<div className="empty"><div className="empty-ico">👤</div><p>No se pudo identificar tu jugador</p></div>;
@@ -1753,6 +1795,11 @@ export default function App() {
     // antes del batch.commit (el setter puede ser diferido por React).
     const nxt={...jugadores};
     const cedulasModificadas=new Set();
+    // Derivar género y categoría automáticamente del nombre de la categoría
+    const catNombreLow=activeCat.nombre.toLowerCase();
+    const derivedGenero=catNombreLow.includes("damas")?"F":catNombreLow.includes("caballeros")?"M":null;
+    const catLabelMatch=activeCat.nombre.match(/^(\w+)/);
+    const derivedCat=catLabelMatch?CAT_NUM[catLabelMatch[1].toLowerCase()]:null;
     activeCat.parejas.forEach(pair=>{
       const stage=stages[pair.id]||"zona";const pts=STAGE_PTS[stage]||0;
       [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
@@ -1774,6 +1821,8 @@ export default function App() {
             historial:[...nxt[cedula].historial,nuevaEntry]};
         }
         cedulasModificadas.add(cedula);
+        if(derivedGenero&&!nxt[cedula].genero)nxt[cedula]={...nxt[cedula],genero:derivedGenero};
+        if(derivedCat&&!nxt[cedula].categoria)nxt[cedula]={...nxt[cedula],categoria:derivedCat};
       });
     });
     setJugadores(nxt);
