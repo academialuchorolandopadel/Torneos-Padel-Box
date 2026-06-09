@@ -1485,7 +1485,7 @@ function calcAmericanoIndStandings(cat){
   });
 }
 
-function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,onEliminar,onGenerarFixture}){
+function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,onEliminar,onTogglePago,onGenerarFixture}){
   const [cedula,setCedula]=useState("");
   const [found,setFound]=useState(null);
   const jugadores=cat.jugadoresAmericano||[];
@@ -1505,6 +1505,7 @@ function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,o
         <div key={j.cedula} className="rank-row">
           <div className="rank-pos">{i+1}</div>
           <div className="f1"><div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div>{isAdmin&&<div style={{fontSize:10,color:"var(--muted)"}}>CI: {j.cedula}</div>}</div>
+          {isAdmin&&<button className={"badge "+(j.pago?"bg":"bd")} style={{cursor:"pointer",fontSize:10,padding:"3px 8px"}} onClick={()=>onTogglePago&&onTogglePago(j.cedula)}>{j.pago?"✓ Pago":"Pendiente"}</button>}
           {isAdmin&&!cat.americanoFixtureGenerado&&<button className="btn btn-danger btn-xs" onClick={()=>onEliminar(j.cedula)}>🗑️</button>}
         </div>
       ))}
@@ -2068,7 +2069,7 @@ export default function App() {
   async function agregarJugadorAmericanoIndividual(jugador){
     const list=activeCat.jugadoresAmericano||[];
     if(list.some(j=>j.cedula===jugador.cedula))return;
-    const newList=[...list,jugador];
+    const newList=[...list,{...jugador,pago:false}];
     updateCat(activeCId,c=>({...c,jugadoresAmericano:newList}));
     await updateDoc(doc(db,"categorias",activeCId),{jugadoresAmericano:newList});
   }
@@ -2097,6 +2098,12 @@ export default function App() {
     }
     updateCat(activeCId,c=>({...c,americanoPartidos:partidos,americanoFixtureGenerado:true}));
     await updateDoc(doc(db,"categorias",activeCId),{americanoPartidos:partidos,americanoFixtureGenerado:true});
+  }
+
+  async function togglePagoAmericanoIndividual(cedula){
+    const newList=(activeCat.jugadoresAmericano||[]).map(j=>j.cedula===cedula?{...j,pago:!j.pago}:j);
+    updateCat(activeCId,c=>({...c,jugadoresAmericano:newList}));
+    await updateDoc(doc(db,"categorias",activeCId),{jugadoresAmericano:newList});
   }
 
   async function guardarResultadoAmericanoIndividual(matchId,juegosA,juegosB){
@@ -2306,7 +2313,7 @@ export default function App() {
       {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
           {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin}/>}
-          {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
+          {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
           {subview==="americano"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
