@@ -50,6 +50,7 @@ SLOT_DEFS.forEach(s => {
 
 const STAGE_PTS = { campeon:100, finalista:75, semifinal:50, cuartos:25, octavos:15, dieciseisavos:12, zona:10 };
 const STAGE_LABEL = { campeon:"🥇 Campeón", finalista:"🥈 Finalista", semifinal:"🥉 Semifinal", cuartos:"⚡ Cuartos", octavos:"📋 Octavos", dieciseisavos:"🎯 16avos", zona:"📍 Zona" };
+const AMERICANO_STAGE_PTS={campeon:30,finalista:20,semifinal:15,cuartos:10,octavos:5,dieciseisavos:5,zona:5};
 
 const ROUND_NAMES_BY_SIZE = {
   2: ["FINAL"],
@@ -130,7 +131,8 @@ function roundRobin(ids) {
   return m;
 }
 
-function calcMatchResult(m, bestOf3=false) {
+function calcMatchResult(m, bestOf3=false, esAmericano=false) {
+  if(esAmericano){if(n(m.s1p1)>n(m.s1p2))return m.p1id;if(n(m.s1p2)>n(m.s1p1))return m.p2id;return null;}
   let sa=0, sb=0;
   if (bestOf3) {
     // 3 sets: solo cuenta el set cuando hay un ganador claro
@@ -592,15 +594,15 @@ function PlayerLoginModal({ error, onClearError, onSubmit, onClose }) {
   );
 }
 
-function ResultModal({ match, cat, onSave, onClose, bestOf3=false }) {
+function ResultModal({ match, cat, onSave, onClose, bestOf3=false, isAmericano=false }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   const [form,setForm]=useState({s1p1:match.s1p1||"",s1p2:match.s1p2||"",s2p1:match.s2p1||"",s2p2:match.s2p2||"",tbp1:match.tbp1||"",tbp2:match.tbp2||"",s3p1:match.s3p1||"",s3p2:match.s3p2||""});
   const set1w=n(form.s1p1)!==n(form.s1p2)?(n(form.s1p1)>n(form.s1p2)?1:2):null;
-  const set2w=n(form.s2p1)!==n(form.s2p2)?(n(form.s2p1)>n(form.s2p2)?1:2):null;
-  const set3w=bestOf3?n(form.s3p1)!==n(form.s3p2)?(n(form.s3p1)>n(form.s3p2)?1:2):null:null;
-  const needTB=!bestOf3&&set1w&&set2w&&set1w!==set2w;
-  const needSet3=bestOf3&&set1w&&set2w&&set1w!==set2w;
-  const getWinner=()=>{let sa=0,sb=0;if(set1w===1)sa++;else if(set1w===2)sb++;if(set2w===1)sa++;else if(set2w===2)sb++;if(bestOf3){if(set3w===1)sa++;else if(set3w===2)sb++;}else{if(sa===sb){if(n(form.tbp1)>n(form.tbp2))sa++;else if(n(form.tbp2)>n(form.tbp1))sb++;}}return sa>sb?match.p1id:sb>sa?match.p2id:null;};
+  const set2w=!isAmericano&&n(form.s2p1)!==n(form.s2p2)?(n(form.s2p1)>n(form.s2p2)?1:2):null;
+  const set3w=!isAmericano&&bestOf3&&set1w&&set2w&&set1w!==set2w?n(form.s3p1)!==n(form.s3p2)?(n(form.s3p1)>n(form.s3p2)?1:2):null:null;
+  const needTB=!isAmericano&&!bestOf3&&set1w&&set2w&&set1w!==set2w;
+  const needSet3=!isAmericano&&bestOf3&&set1w&&set2w&&set1w!==set2w;
+  const getWinner=()=>{if(isAmericano)return n(form.s1p1)>n(form.s1p2)?match.p1id:n(form.s1p2)>n(form.s1p1)?match.p2id:null;let sa=0,sb=0;if(set1w===1)sa++;else if(set1w===2)sb++;if(set2w===1)sa++;else if(set2w===2)sb++;if(bestOf3){if(set3w===1)sa++;else if(set3w===2)sb++;}else{if(sa===sb){if(n(form.tbp1)>n(form.tbp2))sa++;else if(n(form.tbp2)>n(form.tbp1))sb++;}}return sa>sb?match.p1id:sb>sa?match.p2id:null;};
   const winner=getWinner(),p1=byId[match.p1id],p2=byId[match.p2id];
   const f=k=>({className:"inp score-inp",type:"number",min:0,max:99,value:form[k],onChange:e=>setForm(p=>({...p,[k]:e.target.value}))});
   return (
@@ -610,7 +612,7 @@ function ResultModal({ match, cat, onSave, onClose, bestOf3=false }) {
         <div className="match-teams">{p1?.nombre||"?"} <span style={{color:"var(--muted)",fontWeight:400}}>vs</span> {p2?.nombre||"?"}</div>
         <div className="match-meta">{[match.code,match.dia,match.hora,match.cancha].filter(Boolean).join(" · ")}</div>
       </div>
-      {[["Set 1","s1p1","s1p2"],["Set 2","s2p1","s2p2"]].map(([lbl,k1,k2])=>(
+      {(isAmericano?[["Juegos","s1p1","s1p2"]]:[["Set 1","s1p1","s1p2"],["Set 2","s2p1","s2p2"]]).map(([lbl,k1,k2])=>(
         <div key={lbl} className="set-section"><div className="set-title">{lbl}</div>
           <div className="score-row"><span className="score-lbl" style={{textAlign:"right"}}>{p1?.nombre}</span><input {...f(k1)}/><span className="score-vs">-</span><input {...f(k2)}/><span className="score-lbl">{p2?.nombre}</span></div>
         </div>
@@ -968,10 +970,27 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
   const koTotal=koFlat.filter(m=>!m.auto).length;
   const stages=calcPairStages(cat);
   const campeon=cat.parejas.find(p=>stages[p.id]==="campeon");
+  const isAmericano=cat.modalidad==="americano_zonas";
+  let arrastrePodium=null;
+  if(isAmericano&&(cat.knockoutRounds||[]).length>=2){
+    const rds=cat.knockoutRounds;
+    const finalM=rds[rds.length-1]?.[0];
+    if(finalM?.done&&finalM.winner){
+      const champ=finalM.winner;
+      const sub=champ===finalM.p1id?finalM.p2id:finalM.p1id;
+      let pos3=null,pos4=null;
+      (rds[rds.length-2]||[]).forEach(sm=>{
+        if(!sm.done||!sm.winner)return;
+        const loser=sm.winner===sm.p1id?sm.p2id:sm.p1id;
+        if(sm.winner===champ)pos3=loser;else if(sm.winner===sub)pos4=loser;
+      });
+      arrastrePodium={champ,sub,pos3,pos4};
+    }
+  }
   return (
     <div>
       <div className="sec-hdr">
-        <div className="sec-title">Llave Final</div>
+        <div className="sec-title">Llave Final{isAmericano&&<span className="badge bg" style={{marginLeft:6,fontSize:10,verticalAlign:"middle"}}>🎯 Americano</span>}</div>
         <div className="row g8 wrap">
           {cat.knockoutGenerated&&<span className="badge bb">{koDone}/{koTotal}</span>}
           {isAdmin&&koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
@@ -1015,14 +1034,14 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
                             <span style={{display:"flex",alignItems:"center",gap:4}}>{p1?p1.nombre:m.p1label||"TBD"}{m.p1provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
                             {p1&&m.p1label&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5}}>{m.p1label}</span>}
                           </span>
-                          {m.done&&!m.auto&&<span className="br-score">{m.s1p1} {m.s2p1}{m.s3p1!=null&&m.s3p1!==""?` ${m.s3p1}`:""}</span>}
+                          {m.done&&!m.auto&&<span className="br-score">{isAmericano?m.s1p1:m.s1p1+" "+m.s2p1+(m.s3p1!=null&&m.s3p1!==""?" "+m.s3p1:"")}</span>}
                         </div>
                         <div className={`br-team${!p2?" tbd":m.done&&m.winner===m.p2id?" win":""}`}>
                           <span style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
                             <span style={{display:"flex",alignItems:"center",gap:4}}>{p2?p2.nombre:m.p2label||"TBD"}{m.p2provisorio&&!m.done&&<span style={{fontSize:8,color:"var(--gold)",fontWeight:700,padding:"1px 4px",background:"rgba(255,203,71,.15)",borderRadius:3,flexShrink:0}}>PROV</span>}</span>
                             {p2&&m.p2label&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5}}>{m.p2label}</span>}
                           </span>
-                          {m.done&&!m.auto&&<span className="br-score">{m.s1p2} {m.s2p2}{m.s3p2!=null&&m.s3p2!==""?` ${m.s3p2}`:""}</span>}
+                          {m.done&&!m.auto&&<span className="br-score">{isAmericano?m.s1p2:m.s1p2+" "+m.s2p2+(m.s3p2!=null&&m.s3p2!==""?" "+m.s3p2:"")}</span>}
                         </div>
                         {m.dia&&m.hora&&m.cancha&&!m.auto&&<div className="br-schedule">{m.dia} {m.hora} · {m.cancha}{isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}{isAdmin&&!m.done&&<button className="btn btn-ghost btn-xs" style={{marginLeft:4}} onClick={e=>{e.stopPropagation();onEditKOPair&&onEditKOPair(m);}}>👥</button>}</div>}
                       </div>
@@ -1036,12 +1055,25 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
       )}
       <div className="card">
         <div className="card-title">Posiciones Finales</div>
+        {isAmericano&&arrastrePodium&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:"var(--muted)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Podio — posiciones por arrastre</div>
+            <table className="tbl"><tbody>
+              {[{pos:"🥇 1º",pts:30,pid:arrastrePodium.champ},{pos:"🥈 2º",pts:20,pid:arrastrePodium.sub},{pos:"🥉 3º",pts:15,pid:arrastrePodium.pos3,note:true},{pos:"4º",pts:15,pid:arrastrePodium.pos4,note:true}].map(({pos,pts,pid,note})=>{
+                const p=byId[pid];if(!p)return null;
+                return <tr key={pid}><td><span style={{fontFamily:"Oswald",fontWeight:700,fontSize:13}}>{pos}</span>{note&&<span style={{fontSize:9,color:"var(--muted)",marginLeft:4}}>arrastre</span>}</td><td className="em">{p.nombre}</td><td style={{fontSize:11,color:"var(--muted)"}}>{p.j1nombre||p.j1} · {p.j2nombre||p.j2}</td><td style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:16}}>{pts}</td></tr>;
+              })}
+            </tbody></table>
+            <div className="divider" style={{margin:"12px 0"}}/>
+          </div>
+        )}
         <table className="tbl">
           <thead><tr><th>Etapa</th><th>Pareja</th><th>Jugadores</th><th>Pts</th></tr></thead>
           <tbody>
-            {Object.entries(stages).sort((a,b)=>STAGE_PTS[b[1]]-STAGE_PTS[a[1]]).map(([pid,stage])=>{
+            {Object.entries(stages).sort((a,b)=>{const m=isAmericano?AMERICANO_STAGE_PTS:STAGE_PTS;return (m[b[1]]||0)-(m[a[1]]||0);}).map(([pid,stage])=>{
               const p=byId[pid];if(!p)return null;
-              return <tr key={pid}><td><span className="badge bg">{STAGE_LABEL[stage]}</span></td><td className="em">{p.nombre}</td><td style={{fontSize:11,color:"var(--muted)"}}>{p.j1nombre||p.j1} · {p.j2nombre||p.j2}</td><td style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:16}}>{STAGE_PTS[stage]}</td></tr>;
+              const pts=isAmericano?(AMERICANO_STAGE_PTS[stage]||5):STAGE_PTS[stage];
+              return <tr key={pid}><td><span className="badge bg">{STAGE_LABEL[stage]}</span></td><td className="em">{p.nombre}</td><td style={{fontSize:11,color:"var(--muted)"}}>{p.j1nombre||p.j1} · {p.j2nombre||p.j2}</td><td style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:16}}>{pts}</td></tr>;
             })}
           </tbody>
         </table>
@@ -1049,7 +1081,6 @@ function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, po
     </div>
   );
 }
-
 const CATEGORY_COLORS = [
   { bg: "rgba(61,255,160,.12)", border: "rgba(61,255,160,.4)" },
   { bg: "rgba(255,100,180,.12)", border: "rgba(255,100,180,.4)" },
@@ -1218,7 +1249,7 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
       <div className={`rank-pos${rank===1?" p1":rank===2?" p2":rank===3?" p3":""}`} style={{fontSize:16,minWidth:24}}>{rank}</div>
       <div className="f1" style={{minWidth:0}}>
         <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.nombre}</div>
-        <div style={{fontSize:10,color:"var(--muted)"}}>CI: {j.cedula}</div>
+        {isAdmin&&<div style={{fontSize:10,color:"var(--muted)"}}>CI: {j.cedula}</div>}
       </div>
       <div style={{fontFamily:"Oswald",fontWeight:700,fontSize:18,color:"var(--accent)",flexShrink:0,textAlign:"right"}}>
         {j.totalPts}<span style={{fontFamily:"DM Sans",fontSize:8,color:"var(--muted)",display:"block",letterSpacing:1,textTransform:"uppercase"}}>pts</span>
@@ -1285,7 +1316,7 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
             <div className="card" style={{marginTop:16}}>
               <div className="card-title">Historial — {jug.nombre}</div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                <div style={{fontSize:12,color:"var(--muted)"}}>CI: {jug.cedula}</div>
+                {isAdmin&&<div style={{fontSize:12,color:"var(--muted)"}}>CI: {jug.cedula}</div>}
                 {jug.categoria&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:5,background:CAT_COLORS[jug.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[jug.categoria]}</span>}
               </div>
               <div style={{fontFamily:"Oswald",fontSize:36,fontWeight:700,color:"var(--accent)",marginBottom:2}}>{jug.totalPts}</div>
@@ -1455,7 +1486,7 @@ export default function App() {
   const [appView,setAppView]=useState("torneos");
   const [modal,setModal]=useState(null);
   const [tForm,setTForm]=useState({nombre:"",edicion:"",fecha:"",catTipo:"libre",catNum:""});
-  const [cForm,setCForm]=useState({nombre:""});
+  const [cForm,setCForm]=useState({nombre:"",modalidad:"estandar"});
   const [editingName,setEditingName]=useState(false);
   const [editingNameVal,setEditingNameVal]=useState("");
   const [editingEdicion,setEditingEdicion]=useState(false);
@@ -1640,8 +1671,8 @@ export default function App() {
   async function crearCategoria(){
     if(!cForm.nombre.trim())return;
     const newId=uid();
-    const nueva={id:newId,nombre:cForm.nombre.trim(),parejas:[],grupos:[],partidos:[],fixtureGenerado:false,knockoutGenerated:false,knockoutRounds:[],pointsAwarded:false,torneoId:activeTId};
-    setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:[...t.categorias,nueva]}:t));setCForm({nombre:""});setModal(null);setActiveCId(newId);
+    const nueva={id:newId,nombre:cForm.nombre.trim(),modalidad:cForm.modalidad||"estandar",parejas:[],grupos:[],partidos:[],fixtureGenerado:false,knockoutGenerated:false,knockoutRounds:[],pointsAwarded:false,torneoId:activeTId};
+    setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:[...t.categorias,nueva]}:t));setCForm({nombre:"",modalidad:"estandar"});setModal(null);setActiveCId(newId);
     await guardarCategoria(nueva);
   }
 
@@ -1763,7 +1794,7 @@ export default function App() {
   async function guardarResultado(matchId,result){
     const cat=torneos.find(t=>t.id===activeTId)?.categorias?.find(c=>c.id===activeCId);if(!cat)return;
     const m=cat.partidos.find(p=>p.id===matchId);if(!m)return;
-    const winner=result.done?calcMatchResult({...m,...result}):null;
+    const winner=result.done?calcMatchResult({...m,...result},false,cat?.modalidad==="americano_zonas"):null;
     let updatedC=null,updatedD=null;
     if(m.zona4&&(m.zona4Tipo==="A"||m.zona4Tipo==="B")&&result.done){
       const lo=winner===m.p1id?m.p2id:m.p1id;
@@ -1796,7 +1827,7 @@ export default function App() {
     const fm=activeCat.knockoutRounds.flat().find(m=>m.id===matchId);if(!fm)return;
     const totalRounds=activeCat.knockoutRounds.length;
     const isBestOf3=totalRounds>0&&fm.round>=totalRounds-2;
-    const winner=result.done?calcMatchResult({...fm,...result},isBestOf3):null;
+    const winner=result.done?calcMatchResult({...fm,...result},isBestOf3&&!(activeCat?.modalidad==="americano_zonas"),activeCat?.modalidad==="americano_zonas"):null;
     let nr=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...result,winner,done:!!result.done}:m));
     if(winner){
       nr.forEach((round,ri)=>{round.forEach(m=>{if(!m.prevIds?.length)return;if(m.prevIds[0]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p1id:winner}:nm);if(m.prevIds[1]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p2id:winner}:nm);});});
@@ -1819,7 +1850,7 @@ export default function App() {
     const catLabelMatch=activeCat.nombre.match(/^(\w+)/);
     const derivedCat=catLabelMatch?CAT_NUM[catLabelMatch[1].toLowerCase()]:null;
     activeCat.parejas.forEach(pair=>{
-      const stage=stages[pair.id]||"zona";const pts=STAGE_PTS[stage]||0;
+      const stage=stages[pair.id]||"zona";const stgMap=activeCat.modalidad==="americano_zonas"?AMERICANO_STAGE_PTS:STAGE_PTS;const pts=stgMap[stage]||(activeCat.modalidad==="americano_zonas"?5:0);
       [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
         if(!cedula)return;
         const nombre=cedula===pair.j1cedula?pair.j1nombre||pair.j1:pair.j2nombre||pair.j2;
@@ -2063,12 +2094,13 @@ export default function App() {
     </div>
     {modal?.type==="newC"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nueva Categoría</div>
-      <div className="col mb16"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Primera, Damas, Mixtos..." value={cForm.nombre} onChange={e=>setCForm({nombre:e.target.value})} onKeyDown={e=>e.key==="Enter"&&crearCategoria()}/></div>
+      <div className="col mb12"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Primera, Damas, Mixtos..." value={cForm.nombre} onChange={e=>setCForm(p=>({...p,nombre:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&crearCategoria()}/></div>
+      <div className="col mb16"><label className="lbl">Modalidad</label><select className="inp" value={cForm.modalidad} onChange={e=>setCForm(p=>({...p,modalidad:e.target.value}))}><option value="estandar">Estándar (Zonas + Llave)</option><option value="americano_zonas">🎯 Americano (Zonas + Llave, 1 set)</option></select></div>
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearCategoria}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
     </div></div>}
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
-    {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)}/>}
-    {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)} bestOf3={activeCat.knockoutRounds?.length>0&&modal.match.round>=(activeCat.knockoutRounds.length-2)}/>}
+    {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)} isAmericano={activeCat?.modalidad==="americano_zonas"}/>}
+    {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)} bestOf3={false} isAmericano={activeCat?.modalidad==="americano_zonas"}/>}
     {modal?.type==="editKOPair"&&activeCat&&<EditKOPairModal match={modal.match} cat={activeCat} onSave={editarParejaCruce} onClose={()=>setModal(null)}/>}
     {modal?.type==="editMatch"&&(()=>{
       const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
