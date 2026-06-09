@@ -1534,7 +1534,7 @@ function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,o
   );
 }
 
-function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarResultado,onOtorgarPuntos,pointsAwarded}){
+function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarResultado,onOtorgarPuntos,onGenerarFixture,pointsAwarded}){
   const [rondaIdx,setRondaIdx]=useState(0);
   const [editId,setEditId]=useState(null);
   const [fA,setFA]=useState("");
@@ -1559,6 +1559,7 @@ function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarResultado
           <span className="badge bb">{totalDone}/{partidos.length}</span>
           {pointsAwarded&&<span className="badge bg">Puntos otorgados</span>}
           {isAdmin&&totalDone===partidos.length&&partidos.length>0&&<button className="btn btn-cyan btn-sm" onClick={onOtorgarPuntos}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
+          {isAdmin&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{if(window.confirm("Regenerar borra los resultados actuales. Continuar?"))onGenerarFixture();}}>🔄 Regenerar</button>}
         </div>
       </div>
       <div className="grid2">
@@ -1673,6 +1674,7 @@ function AmericanoParejasView({cat,isAdmin,onGuardarResultado,onGenerarFixture,o
           <span className="badge bb">{totalDone}/{partidos.length}</span>
           {pointsAwarded&&<span className="badge bg">Puntos otorgados</span>}
           {isAdmin&&totalDone===partidos.length&&partidos.length>0&&<button className="btn btn-cyan btn-sm" onClick={onOtorgarPuntos}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
+          {isAdmin&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{if(window.confirm("Regenerar borra los resultados actuales. Continuar?"))onGenerarFixture();}}>🔄 Regenerar</button>}
         </div>
       </div>
       <div className="grid2">
@@ -2491,7 +2493,7 @@ export default function App() {
         <>
           {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
-          {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
+          {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntosAmericanoPareja} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
