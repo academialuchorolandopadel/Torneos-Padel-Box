@@ -8,7 +8,6 @@ const n = (x) => parseInt(x) || 0;
 const MIN_GAP = 300;
 const MIN_GAP_KO_SAME_DAY = 120;
 const MIN_GAP_KO_DIFF_DAY = 180;
-const ADMIN_PIN = "2858";
 
 const SLOT_DEFS = [
   { dia: "JUEVES", hora: "19:00", mins: 1140, bloque: "jue_noche" },
@@ -566,16 +565,32 @@ const CSS = `
 
 // ===== PARTE 2 =====
 function PinModal({ onSuccess, onClose }) {
-  const [pin,setPin]=useState(""); const [error,setError]=useState("");
-  const handleSubmit=()=>{ if(pin===ADMIN_PIN){sessionStorage.setItem("padelbox_admin","true");onSuccess();}else setError("PIN incorrecto"); };
+  const [email,setEmail]=useState("");
+  const [pass,setPass]=useState("");
+  const [error,setError]=useState("");
+  const [busy,setBusy]=useState(false);
+  const handleSubmit=async()=>{
+    if(!email.trim()||!pass||busy)return;
+    setBusy(true);setError("");
+    try{
+      await window.firebaseAuth.signInWithEmailAndPassword(window.auth,email.trim(),pass);
+      onSuccess();
+    }catch(err){
+      console.error(err);
+      setError(err.code==="auth/too-many-requests"?"Demasiados intentos. Espera unos minutos.":"Email o contrasena incorrectos");
+    }finally{setBusy(false);}
+  };
   return (
     <div className="overlay" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Acceso Administrador</div>
-      <div className="col mb12"><label className="lbl">Ingresá el PIN</label>
-        <input className="inp" type="password" inputMode="numeric" maxLength={6} value={pin} onChange={e=>{setPin(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} autoFocus />
+      <div className="col mb12"><label className="lbl">Email</label>
+        <input className="inp" type="email" autoComplete="username" value={email} onChange={e=>{setEmail(e.target.value);setError("");}} autoFocus />
+      </div>
+      <div className="col mb12"><label className="lbl">Contrasena</label>
+        <input className="inp" type="password" autoComplete="current-password" value={pass} onChange={e=>{setPass(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
       </div>
       {error&&<div style={{color:"var(--danger)",fontSize:12,marginBottom:12}}>{error}</div>}
-      <div className="row g8"><button className="btn btn-primary f1" onClick={handleSubmit}>Entrar como admin</button><button className="btn btn-ghost" onClick={onClose}>Cancelar</button></div>
+      <div className="row g8"><button className="btn btn-primary f1" onClick={handleSubmit} disabled={busy}>{busy?"Verificando...":"Entrar como admin"}</button><button className="btn btn-ghost" onClick={onClose}>Cancelar</button></div>
     </div></div>
   );
 }
@@ -1779,8 +1794,11 @@ export default function App() {
   const {collection,doc,setDoc,getDocs,updateDoc,deleteDoc,query,where,writeBatch}=firestore;
 
   useEffect(()=>{
-    const a=sessionStorage.getItem("padelbox_admin");if(a==="true"){setIsAdmin(true);return;}
+    // Sesion admin: Firebase Auth (persiste entre recargas y dispositivos)
+    const unsub=window.firebaseAuth.onAuthStateChanged(window.auth,(user)=>{setIsAdmin(!!user);});
+    // Sesion jugador: igual que antes (cedula en sessionStorage)
     const p=sessionStorage.getItem("padelbox_player");if(p==="true"){setIsPlayer(true);setPlayerCedula(sessionStorage.getItem("padelbox_player_cedula"));}
+    return unsub;
   },[]);
 
 
@@ -1829,7 +1847,7 @@ export default function App() {
 
   const getAllCedulas=()=>{const s=new Set();torneos.forEach(t=>t.categorias?.forEach(c=>c.parejas?.forEach(p=>{if(p.j1cedula)s.add(p.j1cedula);if(p.j2cedula)s.add(p.j2cedula);})));return s;};
   const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){sessionStorage.setItem("padelbox_player","true");sessionStorage.setItem("padelbox_player_cedula",cedula);setIsPlayer(true);setPlayerCedula(cedula);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
-  const handleLogoutAdmin=()=>{sessionStorage.removeItem("padelbox_admin");setIsAdmin(false);};
+  const handleLogoutAdmin=async()=>{try{await window.firebaseAuth.signOut(window.auth);}catch(err){console.error(err);}setIsAdmin(false);};
   const handleLogoutPlayer=()=>{sessionStorage.removeItem("padelbox_player");sessionStorage.removeItem("padelbox_player_cedula");setIsPlayer(false);setPlayerCedula(null);};
 
   function updateCat(catId,fn){setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:t.categorias.map(c=>c.id===catId?fn(c):c)}:t));}
@@ -2390,7 +2408,7 @@ export default function App() {
       </div>
     </div>
     {showPlayerLogin&&<PlayerLoginModal error={playerLoginError} onClearError={()=>setPlayerLoginError("")} onSubmit={handlePlayerLogin} onClose={()=>{setShowPlayerLogin(false);setPlayerLoginError("");}}/>}
-    {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
+    {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 
   if(!activeTId)return(<><style>{CSS}</style><div className="app">
@@ -2456,7 +2474,7 @@ export default function App() {
       </div>}
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearTorneo}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
     </div></div>}
-    {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
+    {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 
   const isRoundRobin=["americano_individual","americano_pareja"].includes(activeCat?.modalidad);
@@ -2520,6 +2538,6 @@ export default function App() {
       const allCatPartidos=(activeTorneo?.categorias||[]).flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])]);
       return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={allCatPartidos} onSave={editarPartido} onClose={()=>setModal(null)}/>;
     })()}
-    {showPinModal&&<PinModal onSuccess={()=>{setShowPinModal(false);setIsAdmin(true);}} onClose={()=>setShowPinModal(false)}/>}
+    {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 }
