@@ -25,6 +25,12 @@
         addDoc,
         writeBatch,
       } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+      import {
+        getAuth,
+        signInWithEmailAndPassword,
+        signOut,
+        onAuthStateChanged,
+      } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
       const firebaseConfig = {
         apiKey: "AIzaSyCLTUjDNvDq1KdEIZwWrcDWoPYgPXOIzfo",
@@ -37,8 +43,10 @@
 
       const app = initializeApp(firebaseConfig);
       const db = getFirestore(app);
+      const auth = getAuth(app);
 
       window.db = db;
+      window.auth = auth;
       window.firestore = {
         collection,
         doc,
@@ -52,7 +60,12 @@
         addDoc,
         writeBatch,
       };
-      console.log("🔥 Firebase conectado");
+      window.firebaseAuth = {
+        signInWithEmailAndPassword,
+        signOut,
+        onAuthStateChanged,
+      };
+      console.log("🔥 Firebase conectado (Firestore + Auth)");
     </script>
 
     <script type="module" src="/src/main.jsx"></script>
