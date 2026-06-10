@@ -1,0 +1,32 @@
+{
+  "name": "PadelBox — Torneos de Pádel",
+  "short_name": "PadelBox",
+  "description": "Gestión de torneos de pádel: fixtures, resultados, llaves y ranking",
+  "start_url": "/Torneos-Padel-Box/",
+  "scope": "/Torneos-Padel-Box/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060d18",
+  "theme_color": "#060d18",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/Torneos-Padel-Box/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Torneos-Padel-Box/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Torneos-Padel-Box/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
