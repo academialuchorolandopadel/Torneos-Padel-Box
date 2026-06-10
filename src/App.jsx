@@ -1228,7 +1228,55 @@ function ReglamentoView(){
   );
 }
 
-function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdateGenero, isAdmin }) {
+function calcPlayerStats(cedula,torneos){
+  const matches=[];
+  (torneos||[]).forEach(t=>{
+    const fecha=t.fecha||"";
+    (t.categorias||[]).forEach(c=>{
+      if(c.modalidad==="americano_individual"){
+        (c.americanoPartidos||[]).forEach(m=>{
+          if(!m.done)return;
+          const enA=m.j1a===cedula||m.j2a===cedula;
+          const enB=m.j1b===cedula||m.j2b===cedula;
+          if(!enA&&!enB)return;
+          const gA=Number(m.juegosA)||0,gB=Number(m.juegosB)||0;
+          if(gA===gB)return;
+          matches.push({fecha,ord:m.ronda||0,win:enA?gA>gB:gB>gA});
+        });
+      }else if(c.modalidad==="americano_pareja"){
+        const myPairs=(c.parejas||[]).filter(p=>p.j1cedula===cedula||p.j2cedula===cedula).map(p=>p.id);
+        if(!myPairs.length)return;
+        (c.americanoPartidos||[]).forEach(m=>{
+          if(!m.done)return;
+          const esP1=myPairs.includes(m.p1id),esP2=myPairs.includes(m.p2id);
+          if(!esP1&&!esP2)return;
+          const gA=Number(m.juegosA)||0,gB=Number(m.juegosB)||0;
+          if(gA===gB)return;
+          matches.push({fecha,ord:m.ronda||0,win:esP1?gA>gB:gB>gA});
+        });
+      }else{
+        const myPairs=(c.parejas||[]).filter(p=>p.j1cedula===cedula||p.j2cedula===cedula).map(p=>p.id);
+        if(!myPairs.length)return;
+        const all=[...(c.partidos||[]),...((c.knockoutRounds||[]).flat())];
+        all.forEach(m=>{
+          if(!m.done||m.auto||!m.winner)return;
+          if(!myPairs.includes(m.p1id)&&!myPairs.includes(m.p2id))return;
+          matches.push({fecha,ord:m.mins||0,win:myPairs.includes(m.winner)});
+        });
+      }
+    });
+  });
+  matches.sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||a.ord-b.ord);
+  const pj=matches.length,g=matches.filter(m=>m.win).length,per=pj-g;
+  const pct=pj?Math.round(g*100/pj):0;
+  let rachaActual=0;
+  for(let i=matches.length-1;i>=0;i--){if(matches[i].win)rachaActual++;else break;}
+  let best=0,cur=0;
+  matches.forEach(m=>{if(m.win){cur++;if(cur>best)best=cur;}else cur=0;});
+  return {pj,g,per,pct,rachaActual,mejorRacha:best};
+}
+
+function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria, onUpdateGenero, isAdmin }) {
   const [sel,setSel]=useState(null);
   const [editingCat,setEditingCat]=useState(null);
   const [editingGenero,setEditingGenero]=useState(null);
@@ -1337,6 +1385,16 @@ function JugadoresView({ jugadores, onDeleteJugador, onUpdateCategoria, onUpdate
               <div style={{fontFamily:"Oswald",fontSize:36,fontWeight:700,color:"var(--accent)",marginBottom:2}}>{jug.totalPts}</div>
               <div style={{fontSize:11,color:"var(--muted)",marginBottom:16,letterSpacing:1,textTransform:"uppercase"}}>puntos totales</div>
               {(()=>{const d=(jug.historial||[]).filter(h=>h.torneoEdicion).reduce((s,h)=>s+(h.pts||0),0);return d>0&&<div style={{fontSize:11,color:"var(--gold)",marginBottom:12,display:"flex",alignItems:"center",gap:4}}>🛡️ <span><b>{d}</b> pts a defender en próximas ediciones</span></div>;})()}
+              {(()=>{const st=calcPlayerStats(jug.cedula,torneos);if(!st.pj)return null;return(
+                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20}}>{st.pj}</div><div className="stat-lbl">Partidos</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20}}>{st.g}</div><div className="stat-lbl">Ganados</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--danger)"}}>{st.per}</div><div className="stat-lbl">Perdidos</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--gold)"}}>{st.pct}%</div><div className="stat-lbl">Victorias</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--accent2)"}}>{st.rachaActual}</div><div className="stat-lbl">Racha actual</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--accent2)"}}>{st.mejorRacha}</div><div className="stat-lbl">Mejor racha</div></div>
+                </div>
+              );})()}
               {jug.historial.map((h,i)=>(
                 <div key={i} className="hist-item">
                   <div><div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {h.fecha}</div></div>
@@ -1789,6 +1847,7 @@ export default function App() {
   const [showPlayerLogin,setShowPlayerLogin]=useState(false);
   const [playerLoginError,setPlayerLoginError]=useState("");
   const [playerCedula,setPlayerCedula]=useState(null);
+  const [publicRanking,setPublicRanking]=useState(false);
 
   const {db,firestore}=window;
   const {collection,doc,setDoc,getDocs,updateDoc,deleteDoc,query,where,writeBatch}=firestore;
@@ -2390,7 +2449,17 @@ export default function App() {
   if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div></div></>);
   if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div></div></>);
 
-  if(!isAdmin&&!isPlayer)return(<><style>{CSS}</style><div className="app">
+  if(!isAdmin&&!isPlayer){
+    if(publicRanking)return(<><style>{CSS}</style><div className="app">
+      <header className="hdr">
+        <button className="btn btn-ghost btn-sm" onClick={()=>setPublicRanking(false)}>← Volver</button>
+        <div className="logo">PADEL<em>BOX</em></div>
+      </header>
+      <div className="main">
+        <JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={()=>{}} onUpdateCategoria={()=>{}} onUpdateGenero={()=>{}} isAdmin={false}/>
+      </div>
+    </div></>);
+    return(<><style>{CSS}</style><div className="app">
     <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
       <div style={{marginLeft:"auto",display:"flex",gap:8}}>
         <button className="btn btn-ghost btn-sm" onClick={()=>setShowPlayerLogin(true)}>👤 Jugador</button>
@@ -2401,15 +2470,17 @@ export default function App() {
       <div style={{textAlign:"center"}}>
         <div className="hero-title" style={{marginBottom:16}}>PADEL<em style={{fontStyle:"normal",color:"var(--accent)"}}>BOX</em></div>
         <p style={{color:"var(--muted)",marginBottom:24}}>Seleccioná tu forma de acceso</p>
-        <div className="row g12" style={{justifyContent:"center"}}>
+        <div className="row g12 wrap" style={{justifyContent:"center"}}>
           <button className="btn btn-primary" onClick={()=>setShowPlayerLogin(true)}>👤 Ingresar como Jugador</button>
           <button className="btn btn-ghost" onClick={()=>setShowPinModal(true)}>🔑 Ingresar como Admin</button>
         </div>
+        <button className="btn btn-cyan" style={{marginTop:16}} onClick={()=>setPublicRanking(true)}>🏅 Ver Ranking del Club</button>
       </div>
     </div>
     {showPlayerLogin&&<PlayerLoginModal error={playerLoginError} onClearError={()=>setPlayerLoginError("")} onSubmit={handlePlayerLogin} onClose={()=>{setShowPlayerLogin(false);setPlayerLoginError("");}}/>}
     {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
+  }
 
   if(!activeTId)return(<><style>{CSS}</style><div className="app">
     <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
@@ -2421,7 +2492,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
