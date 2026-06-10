@@ -1297,7 +1297,7 @@ function calcPlayerStats(cedula,torneos){
   return {pj,g,per,pct,rachaActual,mejorRacha:best};
 }
 
-function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria, onUpdateGenero, onCreateJugador, isAdmin }) {
+function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria, onUpdateGenero, onCreateJugador, isAdmin, onDeleteHistorialEntry=()=>{}, onAjustarPuntos=()=>{} }) {
   const [sel,setSel]=useState(null);
   const [showNew,setShowNew]=useState(false);
   const [newCed,setNewCed]=useState("");
@@ -1310,6 +1310,8 @@ function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria,
   };
   const [editingCat,setEditingCat]=useState(null);
   const [editingGenero,setEditingGenero]=useState(null);
+  const [ajusteVal,setAjusteVal]=useState("");
+  const [ajusteDesc,setAjusteDesc]=useState("");
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
   const jug=sel?jugadores[sel]:null;
   const handleDelete=(cedula,e)=>{e.stopPropagation();if(!isAdmin)return;if(window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)){onDeleteJugador(cedula);if(sel===cedula)setSel(null);}};
@@ -1442,10 +1444,28 @@ function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria,
               );})()}
               {jug.historial.map((h,i)=>(
                 <div key={i} className="hist-item">
-                  <div><div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {h.fecha}</div></div>
-                  <div className="col" style={{alignItems:"flex-end",gap:3}}><span className="badge bg">{STAGE_LABEL[h.stage]}</span>{h.torneoEdicion&&<span style={{fontSize:9,color:"var(--gold)",marginTop:2}}>🛡️</span>}<span style={{fontFamily:"Oswald",fontWeight:700,color:"var(--gold)",fontSize:15}}>+{h.pts}</span></div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}{h.manual&&<span style={{fontSize:9,color:"var(--muted)",marginLeft:4}}>(manual)</span>}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {h.fecha}</div>
+                  </div>
+                  <div className="col" style={{alignItems:"flex-end",gap:3}}>
+                    <span className="badge bg">{STAGE_LABEL[h.stage]||"✏️ Manual"}</span>
+                    {h.torneoEdicion&&<span style={{fontSize:9,color:"var(--gold)",marginTop:2}}>🛡️</span>}
+                    <span style={{fontFamily:"Oswald",fontWeight:700,color:h.pts>=0?"var(--gold)":"var(--danger)",fontSize:15}}>{h.pts>=0?"+":""}{h.pts}</span>
+                    {isAdmin&&<button className="btn btn-danger btn-xs" style={{marginTop:2}} title="Eliminar entrada" onClick={()=>{if(window.confirm("Eliminar esta entrada? Se ajustaran los puntos automaticamente."))onDeleteHistorialEntry(jug.cedula,i);}}>🗑️</button>}
+                  </div>
                 </div>
               ))}
+              {isAdmin&&(
+                <div style={{marginTop:14,borderTop:"1px solid var(--border)",paddingTop:12}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Ajuste manual de puntos</div>
+                  <div className="row g8 wrap">
+                    <input className="inp" type="number" style={{width:80}} placeholder="+/-pts" value={ajusteVal} onChange={e=>setAjusteVal(e.target.value)}/>
+                    <input className="inp f1" placeholder="Descripcion (ej: correccion)" value={ajusteDesc} onChange={e=>setAjusteDesc(e.target.value)}/>
+                    <button className="btn btn-secondary btn-sm" disabled={!ajusteVal||parseInt(ajusteVal)===0||isNaN(parseInt(ajusteVal))} onClick={()=>{const d=parseInt(ajusteVal);if(!isNaN(d)&&d!==0){onAjustarPuntos(jug.cedula,d,ajusteDesc.trim());setAjusteVal("");setAjusteDesc("");}}}>Aplicar</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -2202,23 +2222,40 @@ export default function App() {
       if(m.zona4Tipo==="A"){if(mC)updatedC={...mC,p1id:winner};if(mD)updatedD={...mD,p1id:lo};}
       else{if(mC)updatedC={...mC,p2id:winner};if(mD)updatedD={...mD,p2id:lo};}
     }
-    updateCat(activeCId,c=>{
-      let np=c.partidos.map(p=>p.id===matchId?{...p,...result,winner}:p);
-      if(updatedC)np=np.map(p=>p.id===updatedC.id?updatedC:p);
-      if(updatedD)np=np.map(p=>p.id===updatedD.id?updatedD:p);
-      return{...c,partidos:np};
+    // Pre-calcular partidos actualizados una sola vez: sirve para el update
+    // optimista, para el rollback (usando cat.partidos original) y para
+    // recalcularLlaveProvisoria, evitando recalcularlos dos veces.
+    const newPartidos=cat.partidos.map(p=>{
+      if(p.id===matchId)return{...p,...result,winner};
+      if(updatedC&&p.id===updatedC.id)return updatedC;
+      if(updatedD&&p.id===updatedD.id)return updatedD;
+      return p;
     });
+    // Actualización optimista: la UI responde de inmediato
+    updateCat(activeCId,c=>({...c,partidos:newPartidos}));
     setModal(null);
+    // Persistir en Firestore (atómico para el partido + C/D de zona4)
     const batchR=writeBatch(db);
     batchR.update(doc(db,"partidos",matchId),{...result,winner});
     if(updatedC)batchR.update(doc(db,"partidos",updatedC.id),updatedC);
     if(updatedD)batchR.update(doc(db,"partidos",updatedD.id),updatedD);
-    await batchR.commit();
+    try{
+      await batchR.commit();
+    }catch(err){
+      console.error("Error guardando resultado:",err);
+      // Revertir el optimismo: el estado local vuelve a lo que tenía Firestore
+      updateCat(activeCId,c=>({...c,partidos:cat.partidos}));
+      alert("Error al guardar el resultado: "+err.message);
+      return;
+    }
+    // Recalcular llave provisional — fallo no-fatal: el resultado ya está
+    // guardado en Firestore; la llave se actualizará al próximo 🔄.
     if(cat.knockoutGenerated){
-      let updPart=cat.partidos.map(p=>p.id===matchId?{...p,...result,winner}:p);
-      if(updatedC)updPart=updPart.map(p=>p.id===updatedC.id?updatedC:p);
-      if(updatedD)updPart=updPart.map(p=>p.id===updatedD.id?updatedD:p);
-      await recalcularLlaveProvisoria({...cat,partidos:updPart});
+      try{
+        await recalcularLlaveProvisoria({...cat,partidos:newPartidos});
+      }catch(err){
+        console.error("Error actualizando llave provisional:",err);
+      }
     }
   }
 
