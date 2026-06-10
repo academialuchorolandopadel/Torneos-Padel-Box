@@ -118,7 +118,7 @@ function scheduleMatches(newMatches, alreadyPlaced = [], pairMap = {}, isKnockou
     }
     for (const slot of slotsToTry) {
       const key = `${slot.dia}|${slot.hora}|${slot.cancha}`;
-      if (!occupied.has(key)) { occupied.add(key); return { ...m, ...slot, conflict:true, restrictionConflict:true }; }
+      if (!occupied.has(key)) { occupied.add(key); [m.p1id, m.p2id].forEach((pid) => { if (pid) { pairMins[pid]=pairMins[pid]||[]; pairMins[pid].push(slot.mins); } }); return { ...m, ...slot, conflict:true, restrictionConflict:true }; }
     }
     return { ...m, dia:"?", hora:"?", cancha:COURTS[0], conflict:true, restrictionConflict:true };
   });
@@ -150,7 +150,7 @@ function calcMatchResult(m, bestOf3=false, esAmericano=false) {
 // Desempate por enfrentamiento directo (head-to-head).
 // Para grupos de 2: gana quien ganó el partido directo.
 // Para grupos de 3+: sub-tabla usando solo los partidos entre empatados.
-function resolveH2H(sorted, doneBetween) {
+function resolveH2H(sorted, doneBetween, esAmericano=false) {
   let i=0;
   while(i<sorted.length){
     let j=i+1;
@@ -162,13 +162,19 @@ function resolveH2H(sorted, doneBetween) {
       const sub={};group.forEach(s=>{sub[s.id]={pts:0,sg:0,sp:0,gg:0,gp:0};});
       subMs.forEach(m=>{
         const a=sub[m.p1id],b=sub[m.p2id];if(!a||!b)return;
-        let sa=0,sb=0;
-        if(n(m.s1p1)>n(m.s1p2))sa++;else sb++;
-        if(n(m.s2p1)>n(m.s2p2))sa++;else sb++;
-        if(sa===sb){if(n(m.tbp1)>n(m.tbp2))sa++;else sb++;}
+        let sa=0,sb=0,ga,gb;
+        if(esAmericano){
+          ga=n(m.s1p1);gb=n(m.s1p2);
+          if(ga>gb)sa++;else sb++;
+        }else{
+          if(n(m.s1p1)>n(m.s1p2))sa++;else sb++;
+          if(n(m.s2p1)>n(m.s2p2))sa++;else sb++;
+          if(sa===sb){if(n(m.tbp1)>n(m.tbp2))sa++;else sb++;}
+          ga=n(m.s1p1)+n(m.s2p1);gb=n(m.s1p2)+n(m.s2p2);
+        }
         a.sg+=sa;a.sp+=sb;b.sg+=sb;b.sp+=sa;
-        a.gg+=n(m.s1p1)+n(m.s2p1);a.gp+=n(m.s1p2)+n(m.s2p2);
-        b.gg+=n(m.s1p2)+n(m.s2p2);b.gp+=n(m.s1p1)+n(m.s2p1);
+        a.gg+=ga;a.gp+=gb;
+        b.gg+=gb;b.gp+=ga;
         if(sa>sb)a.pts+=2;else b.pts+=2;
       });
       group.sort((a,b)=>sub[b.id].pts-sub[a.id].pts||(sub[b.id].sg-sub[b.id].sp)-(sub[a.id].sg-sub[a.id].sp)||(sub[b.id].gg-sub[b.id].gp)-(sub[a.id].gg-sub[a.id].gp));
@@ -179,7 +185,7 @@ function resolveH2H(sorted, doneBetween) {
   return sorted;
 }
 
-function calcStandings(pairIds, pairs, matches) {
+function calcStandings(pairIds, pairs, matches, esAmericano=false) {
   const byId = Object.fromEntries(pairs.map((p) => [p.id, p]));
   const s = {};
   pairIds.forEach((id) => (s[id] = { id, pts:0, pj:0, g:0, per:0, sg:0, sp:0, gg:0, gp:0 }));
@@ -187,11 +193,16 @@ function calcStandings(pairIds, pairs, matches) {
   const processMatch = (m) => {
     const a=s[m.p1id], b=s[m.p2id];
     if (!a||!b) return;
-    let sa=0, sb=0;
-    if (n(m.s1p1)>n(m.s1p2)) sa++; else sb++;
-    if (n(m.s2p1)>n(m.s2p2)) sa++; else sb++;
-    if (sa===sb) { if (n(m.tbp1)>n(m.tbp2)) sa++; else sb++; }
-    const ga=n(m.s1p1)+n(m.s2p1), gb=n(m.s1p2)+n(m.s2p2);
+    let sa=0, sb=0, ga, gb;
+    if (esAmericano) {
+      ga=n(m.s1p1); gb=n(m.s1p2);
+      if (ga>gb) sa++; else sb++;
+    } else {
+      if (n(m.s1p1)>n(m.s1p2)) sa++; else sb++;
+      if (n(m.s2p1)>n(m.s2p2)) sa++; else sb++;
+      if (sa===sb) { if (n(m.tbp1)>n(m.tbp2)) sa++; else sb++; }
+      ga=n(m.s1p1)+n(m.s2p1); gb=n(m.s1p2)+n(m.s2p2);
+    }
     a.pj++; b.pj++; a.sg+=sa; a.sp+=sb; b.sg+=sb; b.sp+=sa; a.gg+=ga; a.gp+=gb; b.gg+=gb; b.gp+=ga;
     if (sa>sb) { a.g++; a.pts+=2; b.per++; } else { b.g++; b.pts+=2; a.per++; }
   };
@@ -200,8 +211,8 @@ function calcStandings(pairIds, pairs, matches) {
     const matchC=matches.find(m=>m.zona4Tipo==="C"&&m.done);
     const matchD=matches.find(m=>m.zona4Tipo==="D"&&m.done);
     const order=[];
-    if (matchC) { const w=calcMatchResult(matchC); const l=w===matchC.p1id?matchC.p2id:matchC.p1id; order[0]=w; order[1]=l; }
-    if (matchD) { const w=calcMatchResult(matchD); const l=w===matchD.p1id?matchD.p2id:matchD.p1id; order[2]=w; order[3]=l; }
+    if (matchC) { const w=calcMatchResult(matchC,false,esAmericano); const l=w===matchC.p1id?matchC.p2id:matchC.p1id; order[0]=w; order[1]=l; }
+    if (matchD) { const w=calcMatchResult(matchD,false,esAmericano); const l=w===matchD.p1id?matchD.p2id:matchD.p1id; order[2]=w; order[3]=l; }
     const remaining=pairIds.filter(id=>!order.includes(id));
     for (let i=0;i<4;i++) { if (!order[i]&&remaining.length) order[i]=remaining.shift(); }
     return order.filter(id=>id!==undefined).map(id=>({...s[id],pair:byId[id]}));
@@ -209,13 +220,13 @@ function calcStandings(pairIds, pairs, matches) {
     const doneMs=matches.filter(m=>m.done&&pairIds.includes(m.p1id)&&pairIds.includes(m.p2id));
     doneMs.forEach(processMatch);
     const sorted=pairIds.map(id=>({...s[id],pair:byId[id]})).sort((a,b)=>b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp));
-    return resolveH2H(sorted,doneMs);
+    return resolveH2H(sorted,doneMs,esAmericano);
   }
 }
 
 function calcClassified(cat, allowPartial=false) {
   const zonaStatus = cat.grupos.map(g => {
-    const partidos = cat.partidos.filter(m => m.grupoId===g.id && m.p1id && m.p2id && m.zona4Tipo!=="C" && m.zona4Tipo!=="D");
+    const partidos = cat.partidos.filter(m => m.grupoId===g.id && m.p1id && m.p2id);
     const done = partidos.filter(m=>m.done).length;
     return { grupo:g, total:partidos.length, done, completa: partidos.length>0 && done===partidos.length };
   });
@@ -227,7 +238,7 @@ function calcClassified(cat, allowPartial=false) {
     const zonaCompleta=zonaStatus.find(z=>z.grupo.id===g.id)?.completa||false;
     const gIds = cat.parejas.filter(p=>p.grupoId===g.id).map(p=>p.id);
     if(!gIds.length)return;
-    const st = calcStandings(gIds, cat.parejas, cat.partidos.filter(m=>m.grupoId===g.id));
+    const st = calcStandings(gIds, cat.parejas, cat.partidos.filter(m=>m.grupoId===g.id), cat.modalidad==="americano_zonas");
     if (st[0]) primeros.push({...st[0], grupo:g.nombre, pos:1, provisorio:!zonaCompleta});
     if (st[1]) segundos.push({...st[1], grupo:g.nombre, pos:2, provisorio:!zonaCompleta});
     if (st[2]) terceros.push({...st[2], grupo:g.nombre, pos:3, provisorio:!zonaCompleta});
@@ -732,10 +743,10 @@ function EditMatchModal({ match, cat, allPartidos, onSave, onClose }) {
   );
 }
 
-function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }) {
-  if (!cat||!cat.parejas||!cat.grupos) return <div className="empty">Cargando datos de la categoria...</div>;
+function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin, jugadoresGlobal }) {
   const empty={nombre:"",j1nombre:"",j1cedula:"",j2nombre:"",j2cedula:""};
   const [form,setForm]=useState(empty);const [showAdd,setShowAdd]=useState(true);
+  if (!cat||!cat.parejas||!cat.grupos) return <div className="empty">Cargando datos de la categoria...</div>;
   const gName=Object.fromEntries(cat.grupos.map(g=>[g.id,g.nombre]));
   function handleAdd(){
     if(!form.nombre.trim()||!form.j1nombre.trim()||!form.j2nombre.trim())return;
@@ -743,6 +754,16 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }
     setForm(empty);
   }
   const s=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  // Autocompletar nombre desde la base de jugadores al ingresar la cedula
+  const sCed=(cedKey,nomKey)=>e=>{
+    const v=e.target.value;
+    setForm(p=>{
+      const n={...p,[cedKey]:v};
+      const j=jugadoresGlobal?.[v.trim()];
+      if(j&&!p[nomKey].trim())n[nomKey]=j.nombre;
+      return n;
+    });
+  };
   const totalPagos=cat.parejas.reduce((acc,p)=>acc+(p.pagoJ1?1:0)+(p.pagoJ2?1:0),0);
   const formatSlots=(pair)=>{
     if(pair.sinProblemas!==false&&!pair.restriccionesSlots?.length)return <span className="restr-badge restr-ok">✓ Sin problemas</span>;
@@ -767,9 +788,9 @@ function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin }
           <div className="col f1 mb12"><label className="lbl">Nombre pareja</label><input className="inp" placeholder="González / Martínez" value={form.nombre} onChange={s("nombre")}/></div>
           <div className="grid2 mb12">
             <div className="col"><label className="lbl">J1 — Nombre</label><input className="inp" value={form.j1nombre} onChange={s("j1nombre")}/></div>
-            <div className="col"><label className="lbl">J1 — Cédula</label><input className="inp" value={form.j1cedula} onChange={s("j1cedula")} placeholder="1234567"/></div>
+            <div className="col"><label className="lbl">J1 — Cédula</label><input className="inp" value={form.j1cedula} onChange={sCed("j1cedula","j1nombre")} placeholder="1234567"/></div>
             <div className="col"><label className="lbl">J2 — Nombre</label><input className="inp" value={form.j2nombre} onChange={s("j2nombre")}/></div>
-            <div className="col"><label className="lbl">J2 — Cédula</label><input className="inp" value={form.j2cedula} onChange={s("j2cedula")} placeholder="7654321" onKeyDown={e=>e.key==="Enter"&&handleAdd()}/></div>
+            <div className="col"><label className="lbl">J2 — Cédula</label><input className="inp" value={form.j2cedula} onChange={sCed("j2cedula","j2nombre")} placeholder="7654321" onKeyDown={e=>e.key==="Enter"&&handleAdd()}/></div>
           </div>
           <button className="btn btn-primary" onClick={handleAdd} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>+ Agregar pareja</button>
         </div>
@@ -941,7 +962,7 @@ function Posiciones({ cat }) {
       <div className="grid2">
         {cat.grupos.map(g=>{
           const ids=cat.parejas.filter(p=>p.grupoId===g.id).map(p=>p.id);
-          const st=calcStandings(ids,cat.parejas,cat.partidos.filter(m=>m.grupoId===g.id));
+          const st=calcStandings(ids,cat.parejas,cat.partidos.filter(m=>m.grupoId===g.id),cat.modalidad==="americano_zonas");
           const isZona4=cat.partidos.some(m=>m.grupoId===g.id&&m.zona4);
           return (
             <div key={g.id} className="card" style={{margin:0}}>
@@ -971,7 +992,7 @@ function Posiciones({ cat }) {
 function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch, onEditKOPair }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   const zonaStatus=cat.fixtureGenerado?cat.grupos.map(g=>{
-    const partidos=cat.partidos.filter(m=>m.grupoId===g.id&&m.p1id&&m.p2id&&m.zona4Tipo!=="C"&&m.zona4Tipo!=="D");
+    const partidos=cat.partidos.filter(m=>m.grupoId===g.id&&m.p1id&&m.p2id);
     const done=partidos.filter(m=>m.done).length;
     return {nombre:g.nombre,done,total:partidos.length,completa:partidos.length>0&&done===partidos.length};
   }):[];
@@ -1276,8 +1297,17 @@ function calcPlayerStats(cedula,torneos){
   return {pj,g,per,pct,rachaActual,mejorRacha:best};
 }
 
-function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria, onUpdateGenero, isAdmin }) {
+function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria, onUpdateGenero, onCreateJugador, isAdmin }) {
   const [sel,setSel]=useState(null);
+  const [showNew,setShowNew]=useState(false);
+  const [newCed,setNewCed]=useState("");
+  const [newNom,setNewNom]=useState("");
+  const handleCreate=()=>{
+    const ced=newCed.trim(),nom=newNom.trim();
+    if(!ced||!nom)return;
+    if(jugadores[ced]){alert("Ya existe un jugador con esa cedula: "+jugadores[ced].nombre);return;}
+    onCreateJugador(ced,nom);setNewCed("");setNewNom("");setShowNew(false);
+  };
   const [editingCat,setEditingCat]=useState(null);
   const [editingGenero,setEditingGenero]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
@@ -1354,7 +1384,22 @@ function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria,
   );
   return (
     <div>
-      <div className="sec-hdr"><div className="sec-title">Ranking</div><span className="badge bb">{list.length} jugadores</span></div>
+      <div className="sec-hdr"><div className="sec-title">Ranking</div>
+        <div className="row g8 wrap">
+          <span className="badge bb">{list.length} jugadores</span>
+          {isAdmin&&<button className="btn btn-primary btn-sm" onClick={()=>setShowNew(s=>!s)}>{showNew?"✕ Cancelar":"+ Nuevo Jugador"}</button>}
+        </div>
+      </div>
+      {isAdmin&&showNew&&(
+        <div className="card mb16">
+          <div className="card-title">Nuevo Jugador</div>
+          <div className="grid2 mb12">
+            <div className="col"><label className="lbl">Cedula</label><input className="inp" autoFocus value={newCed} onChange={e=>setNewCed(e.target.value)} placeholder="1234567"/></div>
+            <div className="col"><label className="lbl">Nombre y apellido</label><input className="inp" value={newNom} onChange={e=>setNewNom(e.target.value)} placeholder="Juan Perez" onKeyDown={e=>e.key==="Enter"&&handleCreate()}/></div>
+          </div>
+          <button className="btn btn-primary" onClick={handleCreate}>Crear jugador</button>
+        </div>
+      )}
       {list.length===0?(
         <div className="empty"><div className="empty-ico">🏅</div><p>Los jugadores aparecen aquí al finalizar un torneo y otorgar puntos</p><p style={{fontSize:12,marginTop:8}}>El género y categoría se asignan automáticamente del nombre de la categoría</p></div>
       ):(
@@ -1424,7 +1469,7 @@ function MiTorneo({ torneo, playerCedula }) {
     }).filter(Boolean);
     const miGrupo=cat.grupos?.find(g=>g.id===miPareja.grupoId);
     const zonaIds=(cat.parejas||[]).filter(p=>p.grupoId===miPareja.grupoId).map(p=>p.id);
-    const standing=miGrupo?calcStandings(zonaIds,cat.parejas,(cat.partidos||[]).filter(m=>m.grupoId===miPareja.grupoId)):[];
+    const standing=miGrupo?calcStandings(zonaIds,cat.parejas,(cat.partidos||[]).filter(m=>m.grupoId===miPareja.grupoId),cat.modalidad==="americano_zonas"):[];
     const stages=cat.knockoutGenerated?calcPairStages(cat):{};
     const miStage=stages[miPareja.id];
     misData.push({cat,miPareja,misPartidos,misKO,miGrupo,standing,byId,miStage});
@@ -1579,7 +1624,7 @@ function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,o
         <div key={j.cedula} className="rank-row">
           <div className="rank-pos">{i+1}</div>
           <div className="f1"><div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{j.nombre}</div>{isAdmin&&<div style={{fontSize:10,color:"var(--muted)"}}>CI: {j.cedula}</div>}</div>
-          {isAdmin&&<button className={"badge "+(j.pago?"bg":"bd")} style={{cursor:"pointer",fontSize:10,padding:"3px 8px"}} onClick={()=>onTogglePago&&onTogglePago(j.cedula)}>{j.pago?"✓ Pago":"Pendiente"}</button>}
+          {isAdmin&&<button className={"pago-pill "+(j.pago?"pago-ok":"pago-no")} style={{cursor:"pointer",fontSize:10}} onClick={()=>onTogglePago&&onTogglePago(j.cedula)}>{j.pago?"✓ Pago":"Pendiente"}</button>}
           {isAdmin&&!cat.americanoFixtureGenerado&&<button className="btn btn-danger btn-xs" onClick={()=>onEliminar(j.cedula)}>🗑️</button>}
         </div>
       ))}
@@ -1935,7 +1980,7 @@ export default function App() {
       await updateDoc(doc(db,"partidos",matchId),changes);updated=true;
     } else {
       let nk=targetCat.knockoutRounds?[...targetCat.knockoutRounds]:[];let found=false;
-      for(let i=0;i<nk.length;i++){const mi=nk[i].findIndex(m=>m.id===matchId);if(mi!==-1){nk[i][mi]={...nk[i][mi],...changes};found=true;break;}}
+      for(let i=0;i<nk.length;i++){const mi=nk[i].findIndex(m=>m.id===matchId);if(mi!==-1){nk[i]=nk[i].map((m,k)=>k===mi?{...m,...changes}:m);found=true;break;}}
       if(found){updateCat(targetCatId,c=>({...c,knockoutRounds:nk}));await updateDoc(doc(db,"categorias",targetCatId),{knockoutMatchesFlat:nk.flat()});updated=true;}
     }
     if(!updated)console.warn("Partido no encontrado:",matchId);
@@ -1993,7 +2038,8 @@ export default function App() {
     // Todo cruce con horario fijado (jugado, manual o preservado) ocupa su slot
     const fixedKO=finalRounds.flat().filter(m=>!m.auto&&m.dia&&m.dia!=="?");
     const allExisting=[...getSlotsOcupados(activeCId),...fixedKO];
-    const rescheduled=scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
+    const esAmericanoLlave=catData.modalidad&&catData.modalidad!=="estandar";
+    const rescheduled=esAmericanoLlave?finalRounds:scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:rescheduled}));
     await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:rescheduled.flat()});
   }
@@ -2002,7 +2048,7 @@ export default function App() {
     if(!tForm.nombre.trim())return;
     const newId=uid();
     const nuevo={id:newId,nombre:tForm.nombre.trim(),edicion:tForm.edicion.trim(),fecha:tForm.fecha,horaInicio:tForm.horaInicio||"",catTipo:tForm.catTipo,catNum:tForm.catNum,categorias:[]};
-    setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",edicion:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:""});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
+    setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",edicion:"",edicionSel:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:""});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
     try{await setDoc(doc(db,"torneos",newId),{id:newId,nombre:nuevo.nombre,edicion:nuevo.edicion,fecha:nuevo.fecha,horaInicio:nuevo.horaInicio,catTipo:nuevo.catTipo,catNum:nuevo.catNum});}catch(err){console.error(err);}
   }
 
@@ -2032,7 +2078,7 @@ export default function App() {
     else{
       const c=activeCat;
       const sizes=c.grupos.map(g=>({g,cnt:c.parejas.filter(p=>p.grupoId===g.id).length}));
-      const available=sizes.filter(x=>x.cnt<3).sort((a,b)=>a.cnt-b.cnt);
+      const available=sizes.filter(x=>x.cnt<4).sort((a,b)=>a.cnt-b.cnt);
       let tg,newGrupos=c.grupos;
       if(available.length>0)tg=available[0].g;else{tg={id:uid(),nombre:`ZONA ${LETTERS[c.grupos.length]}`};newGrupos=[...c.grupos,tg];}
       const pw={...pair,grupoId:tg.id};const existing=c.parejas.filter(p=>p.grupoId===tg.id);const baseCode=c.partidos.length+1;
@@ -2181,11 +2227,30 @@ export default function App() {
     const totalRounds=activeCat.knockoutRounds.length;
     const isBestOf3=totalRounds>0&&fm.round>=totalRounds-2;
     const winner=result.done?calcMatchResult({...fm,...result},isBestOf3&&!(activeCat?.modalidad==="americano_zonas"),activeCat?.modalidad==="americano_zonas"):null;
+    const prevWinner=fm.winner;
     let nr=activeCat.knockoutRounds.map(round=>round.map(m=>m.id===matchId?{...m,...result,winner,done:!!result.done}:m));
     if(winner){
       nr.forEach((round,ri)=>{round.forEach(m=>{if(!m.prevIds?.length)return;if(m.prevIds[0]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p1id:winner}:nm);if(m.prevIds[1]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p2id:winner}:nm);});});
       const allEx=getSlotsOcupados(activeCId);
       nr=scheduleKnockoutMatches(nr,allEx,activeCat.parejas);
+    }else if(prevWinner){
+      // Despropagar en cascada: borrar el resultado invalida los cruces siguientes
+      const queue=[{mid:matchId,wid:prevWinner}];
+      while(queue.length){
+        const{mid,wid}=queue.shift();
+        nr=nr.map(round=>round.map(m=>{
+          if(!m.prevIds?.length)return m;
+          const hit1=m.prevIds[0]===mid&&m.p1id===wid;
+          const hit2=m.prevIds[1]===mid&&m.p2id===wid;
+          if(!hit1&&!hit2)return m;
+          const nm={...m,...(hit1?{p1id:null}:{}),...(hit2?{p2id:null}:{})};
+          if(m.done&&!m.auto){
+            if(m.winner)queue.push({mid:m.id,wid:m.winner});
+            return{...nm,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",s3p1:"",s3p2:""};
+          }
+          return nm;
+        }));
+      }
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nr}));setModal(null);await guardarKnockout(nr);
   }
@@ -2217,7 +2282,7 @@ export default function App() {
         if(prevEntry){
           const delta=pts-(prevEntry.pts||0);
           nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+delta,
-            historial:nxt[cedula].historial.map(h=>(h.torneoId===activeTId&&h.catId===activeCId)?nuevaEntry:h)};
+            historial:nxt[cedula].historial.map(h=>h===prevEntry?nuevaEntry:h)};
         }else{
           nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,
             historial:[...nxt[cedula].historial,nuevaEntry]};
@@ -2321,11 +2386,22 @@ export default function App() {
       else{nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+pts,historial:[...nxt[cedula].historial,nuevaEntry]};}
       cedulasModificadas.add(cedula);
     });
+    let ptsFallen=0;
+    if(activeTorneo.edicion){
+      Object.values(nxt).forEach(jug=>{
+        if(cedulasModificadas.has(jug.cedula))return;
+        const prevIdx=(jug.historial||[]).findIndex(h=>h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId);
+        if(prevIdx===-1)return;
+        const prevPts=jug.historial[prevIdx].pts||0;
+        nxt[jug.cedula]={...jug,totalPts:Math.max(0,jug.totalPts-prevPts),historial:jug.historial.filter((_,i)=>i!==prevIdx)};
+        cedulasModificadas.add(jug.cedula);ptsFallen++;
+      });
+    }
     setJugadores(nxt);updateCat(activeCId,c=>({...c,pointsAwarded:true}));
     const batch=writeBatch(db);
     [...cedulasModificadas].forEach(cedula=>batch.set(doc(db,"jugadores",cedula),nxt[cedula]));
     batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
-    try{await batch.commit();alert("Puntos guardados correctamente");}
+    try{await batch.commit();alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
     catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
   }
 
@@ -2443,6 +2519,13 @@ export default function App() {
     setModal(null);
   }
 
+  async function crearJugadorManual(cedula,nombre){
+    const nuevo={cedula,nombre,totalPts:0,historial:[]};
+    setJugadores(prev=>({...prev,[cedula]:nuevo}));
+    try{await setDoc(doc(db,"jugadores",cedula),nuevo);}
+    catch(err){alert("Error al crear jugador: "+err.message);}
+  }
+
   async function eliminarJugador(cedula){try{await deleteDoc(doc(db,"jugadores",cedula));setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
   async function eliminarTorneo(tid){setTorneos(p=>p.filter(x=>x.id!==tid));try{await deleteDoc(doc(db,"torneos",tid));}catch(err){console.error(err);}}
 
@@ -2456,7 +2539,7 @@ export default function App() {
         <div className="logo">PADEL<em>BOX</em></div>
       </header>
       <div className="main">
-        <JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={()=>{}} onUpdateCategoria={()=>{}} onUpdateGenero={()=>{}} isAdmin={false}/>
+        <JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={()=>{}} onUpdateCategoria={()=>{}} onUpdateGenero={()=>{}} onCreateJugador={()=>{}} isAdmin={false}/>
       </div>
     </div></>);
     return(<><style>{CSS}</style><div className="app">
@@ -2492,7 +2575,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
@@ -2509,7 +2592,7 @@ export default function App() {
               <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);
                 const autocat=(!isAdmin&&isPlayer&&playerCedula)?t.categorias?.find(c=>c.parejas?.some(p=>p.j1cedula===playerCedula||p.j2cedula===playerCedula)):null;
                 setActiveCId(autocat?.id||null);
-                setSubview(isAdmin?"inscripcion":["americano_individual","americano_pareja"].includes(c.modalidad)?"americano":"mitorneo");}}>
+                setSubview(isAdmin?"inscripcion":["americano_individual","americano_pareja"].includes(autocat?.modalidad)?"americano":"mitorneo");}}>
                 <div className="t-card-name">{t.nombre}</div>
                 <div className="t-card-meta">{t.fecha||"Sin fecha"}{t.edicion&&` · ${t.edicion}`}</div>
                 <div className="row wrap g8" style={{marginBottom:6}}>
@@ -2527,7 +2610,14 @@ export default function App() {
     {modal?.type==="newT"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nuevo Torneo</div>
       <div className="col mb12"><label className="lbl">Nombre completo</label><input className="inp" autoFocus placeholder="ej: Torneo Aniversario Box 2026" value={tForm.nombre} onChange={e=>setTForm(p=>({...p,nombre:e.target.value}))}/></div>
-      <div className="col mb12"><label className="lbl">Identificador de edición</label><input className="inp" placeholder="ej: Torneo Aniversario (igual cada año)" value={tForm.edicion} onChange={e=>setTForm(p=>({...p,edicion:e.target.value}))} list="editions-new-dl"/><datalist id="editions-new-dl">{[...new Set(torneos.map(t=>t.edicion).filter(Boolean))].map(e=><option key={e} value={e}/>)}</datalist></div>
+      <div className="col mb12"><label className="lbl">Edición (vincula torneos repetidos para defensa de puntos)</label>
+        <select className="inp" value={tForm.edicionSel||""} onChange={e=>{const v=e.target.value;setTForm(p=>({...p,edicionSel:v,edicion:v==="__nueva__"?"":v}));}}>
+          <option value="">Sin edición (torneo único)</option>
+          {[...new Set(torneos.map(t=>t.edicion).filter(Boolean))].map(ed=><option key={ed} value={ed}>{ed}</option>)}
+          <option value="__nueva__">➕ Nueva edición…</option>
+        </select>
+        {tForm.edicionSel==="__nueva__"&&<input className="inp mt8" autoFocus placeholder="Nombre de la nueva edición, ej: Torneo Aniversario" value={tForm.edicion} onChange={e=>setTForm(p=>({...p,edicion:e.target.value}))}/>}
+      </div>
       <div className="col mb12"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={e=>setTForm(p=>({...p,fecha:e.target.value}))}/></div>
       <div className="col mb12"><label className="lbl">Hora de inicio</label><input className="inp" type="time" value={tForm.horaInicio||""} onChange={e=>setTForm(p=>({...p,horaInicio:e.target.value}))}/></div>
       <div className="col mb12"><label className="lbl">Tipo de categoria</label>
@@ -2580,7 +2670,7 @@ export default function App() {
       </div>
       {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
-          {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin}/>}
+          {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntosAmericanoPareja} pointsAwarded={activeCat?.pointsAwarded}/>}
@@ -2601,7 +2691,13 @@ export default function App() {
     </div></div>}
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)} isAmericano={activeCat?.modalidad==="americano_zonas"}/>}
-    {modal?.type==="koRes"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)} bestOf3={false} isAmericano={activeCat?.modalidad==="americano_zonas"}/>}
+    {modal?.type==="koRes"&&activeCat&&(()=>{
+      const esAmKO=activeCat?.modalidad==="americano_zonas";
+      const totalKO=activeCat.knockoutRounds?.length||0;
+      const km=(activeCat.knockoutRounds||[]).flat().find(m=>m.id===modal.match.id);
+      const isB3=!esAmKO&&totalKO>0&&!!km&&km.round>=totalKO-2;
+      return <ResultModal match={modal.match} cat={activeCat} onSave={guardarResultadoKnockout} onClose={()=>setModal(null)} bestOf3={isB3} isAmericano={esAmKO}/>;
+    })()}
     {modal?.type==="editKOPair"&&activeCat&&<EditKOPairModal match={modal.match} cat={activeCat} onSave={editarParejaCruce} onClose={()=>setModal(null)}/>}
     {modal?.type==="editMatch"&&(()=>{
       const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
