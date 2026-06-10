@@ -1312,6 +1312,7 @@ function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria,
   const [editingGenero,setEditingGenero]=useState(null);
   const [ajusteVal,setAjusteVal]=useState("");
   const [ajusteDesc,setAjusteDesc]=useState("");
+  const [confirmDeleteIdx,setConfirmDeleteIdx]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
   const jug=sel?jugadores[sel]:null;
   const handleDelete=(cedula,e)=>{e.stopPropagation();if(!isAdmin)return;if(window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)){onDeleteJugador(cedula);if(sel===cedula)setSel(null);}};
@@ -1340,7 +1341,7 @@ function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria,
   });
   const sortKeys=(obj)=>Object.keys(obj).sort((a,b)=>parseCatNum(a)-parseCatNum(b));
   const renderRow=(j,rank)=>(
-    <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)",padding:"8px 10px"}} onClick={()=>setSel(sel===j.cedula?null:j.cedula)}>
+    <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)",padding:"8px 10px"}} onClick={()=>{setSel(sel===j.cedula?null:j.cedula);setConfirmDeleteIdx(null);}}>
       <div className={`rank-pos${rank===1?" p1":rank===2?" p2":rank===3?" p3":""}`} style={{fontSize:16,minWidth:24}}>{rank}</div>
       <div className="f1" style={{minWidth:0}}>
         <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.nombre}</div>
@@ -1452,7 +1453,17 @@ function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCategoria,
                     <span className="badge bg">{STAGE_LABEL[h.stage]||"✏️ Manual"}</span>
                     {h.torneoEdicion&&<span style={{fontSize:9,color:"var(--gold)",marginTop:2}}>🛡️</span>}
                     <span style={{fontFamily:"Oswald",fontWeight:700,color:h.pts>=0?"var(--gold)":"var(--danger)",fontSize:15}}>{h.pts>=0?"+":""}{h.pts}</span>
-                    {isAdmin&&<button className="btn btn-danger btn-xs" style={{marginTop:2}} title="Eliminar entrada" onClick={()=>{if(window.confirm("Eliminar esta entrada? Se ajustaran los puntos automaticamente."))onDeleteHistorialEntry(jug.cedula,i);}}>🗑️</button>}
+                    {isAdmin&&(
+                      confirmDeleteIdx===i ? (
+                        <div className="row g8" style={{marginTop:4}}>
+                          <span style={{fontSize:10,color:"var(--danger)"}}>¿Borrar?</span>
+                          <button className="btn btn-danger btn-xs" onClick={()=>{onDeleteHistorialEntry(jug.cedula,i);setConfirmDeleteIdx(null);}}>✓ Sí</button>
+                          <button className="btn btn-ghost btn-xs" onClick={()=>setConfirmDeleteIdx(null)}>✕</button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-danger btn-xs" style={{marginTop:2}} title="Eliminar entrada" onClick={()=>setConfirmDeleteIdx(i)}>🗑️</button>
+                      )
+                    )}
                   </div>
                 </div>
               ))}
@@ -2564,7 +2575,75 @@ export default function App() {
   }
 
   async function eliminarJugador(cedula){try{await deleteDoc(doc(db,"jugadores",cedula));setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
-  async function eliminarTorneo(tid){setTorneos(p=>p.filter(x=>x.id!==tid));try{await deleteDoc(doc(db,"torneos",tid));}catch(err){console.error(err);}}
+  async function eliminarEntradaHistorial(cedula,idx){
+    try{
+      const jug=jugadores[cedula];
+      if(!jug){alert("Error: jugador no encontrado ("+cedula+")");return;}
+      const hist=jug.historial||[];
+      if(idx<0||idx>=hist.length){alert("Error: entrada fuera de rango");return;}
+      const entry=hist[idx];
+      const updated={...jug,
+        totalPts:Math.max(0,jug.totalPts-(entry.pts||0)),
+        historial:hist.filter((_,i)=>i!==idx)
+      };
+      setJugadores(prev=>({...prev,[cedula]:updated}));
+      await setDoc(doc(db,"jugadores",cedula),updated);
+    }catch(err){
+      console.error("Error eliminando entrada historial:",err);
+      alert("Error al eliminar: "+err.message);
+    }
+  }
+
+  async function ajustarPuntosJugador(cedula,delta,descripcion){
+    try{
+      const jug=jugadores[cedula];
+      if(!jug){alert("Error: jugador no encontrado ("+cedula+")");return;}
+      const nuevaEntry={
+        torneoId:null,catId:null,
+        torneoNombre:descripcion||"Ajuste manual",
+        torneoEdicion:"",catNombre:"—",stage:"zona",
+        pts:delta,fecha:new Date().toLocaleDateString("es-PY"),manual:true
+      };
+      const updated={...jug,
+        totalPts:Math.max(0,jug.totalPts+delta),
+        historial:[...(jug.historial||[]),nuevaEntry]
+      };
+      setJugadores(prev=>({...prev,[cedula]:updated}));
+      await setDoc(doc(db,"jugadores",cedula),updated);
+    }catch(err){
+      console.error("Error ajustando puntos:",err);
+      alert("Error al ajustar puntos: "+err.message);
+    }
+  }
+
+  async function eliminarTorneo(tid){
+    // Calcular jugadores afectados ANTES de actualizar el estado
+    const jugAfectados={};
+    Object.values(jugadores).forEach(jug=>{
+      const entries=(jug.historial||[]).filter(h=>h.torneoId===tid);
+      if(!entries.length)return;
+      const ptsBajar=entries.reduce((s,h)=>s+(h.pts||0),0);
+      jugAfectados[jug.cedula]={...jug,
+        totalPts:Math.max(0,jug.totalPts-ptsBajar),
+        historial:jug.historial.filter(h=>h.torneoId!==tid)
+      };
+    });
+    // Actualización optimista
+    if(Object.keys(jugAfectados).length>0)setJugadores(prev=>({...prev,...jugAfectados}));
+    setTorneos(p=>p.filter(x=>x.id!==tid));
+    // Batch atómico: borra el torneo + actualiza todos los jugadores afectados
+    const batch=writeBatch(db);
+    batch.delete(doc(db,"torneos",tid));
+    Object.values(jugAfectados).forEach(jug=>batch.set(doc(db,"jugadores",jug.cedula),jug));
+    try{
+      await batch.commit();
+      const n=Object.keys(jugAfectados).length;
+      if(n>0)alert("Torneo eliminado. Puntos ajustados para "+n+" jugador(es).");
+    }catch(err){
+      console.error("Error eliminando torneo:",err);
+      alert("Error al eliminar: "+err.message);
+    }
+  }
 
   if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div></div></>);
   if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div></div></>);
@@ -2612,7 +2691,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin}/>:appView==="reglamento"?<ReglamentoView/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
