@@ -2,6 +2,30 @@
 // Funciones puras: reciben datos y devuelven datos. No tocan Firebase ni React.
 import { n } from "./constantes.js";
 
+// Criterio de orden de una tabla: puntos, luego diferencia de sets, luego
+// diferencia de games. Única definición: la usan la tabla de cada zona, el
+// desempate por enfrentamiento directo y la elección de los mejores terceros.
+export function compararPosiciones(a,b){
+  return b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp);
+}
+
+// Sets y games de un partido de zona desde el punto de vista de cada pareja.
+// Americano: un solo set (los games son los del set 1).
+// Estándar: 2 sets + super tie-break si quedan 1-1 (los games no incluyen el TB).
+export function contarSetsYGames(m,esAmericano=false){
+  let sa=0,sb=0,ga,gb;
+  if(esAmericano){
+    ga=n(m.s1p1);gb=n(m.s1p2);
+    if(ga>gb)sa++;else sb++;
+  }else{
+    if(n(m.s1p1)>n(m.s1p2))sa++;else sb++;
+    if(n(m.s2p1)>n(m.s2p2))sa++;else sb++;
+    if(sa===sb){if(n(m.tbp1)>n(m.tbp2))sa++;else sb++;}
+    ga=n(m.s1p1)+n(m.s2p1);gb=n(m.s1p2)+n(m.s2p2);
+  }
+  return {sa,sb,ga,gb};
+}
+
 export function calcMatchResult(m, bestOf3=false, esAmericano=false) {
   if(esAmericano){if(n(m.s1p1)>n(m.s1p2))return m.p1id;if(n(m.s1p2)>n(m.s1p1))return m.p2id;return null;}
   let sa=0, sb=0;
@@ -26,7 +50,7 @@ export function resolveH2H(sorted, doneBetween, esAmericano=false) {
   let i=0;
   while(i<sorted.length){
     let j=i+1;
-    while(j<sorted.length&&sorted[j].pts===sorted[i].pts&&(sorted[j].sg-sorted[j].sp)===(sorted[i].sg-sorted[i].sp)&&(sorted[j].gg-sorted[j].gp)===(sorted[i].gg-sorted[i].gp))j++;
+    while(j<sorted.length&&compararPosiciones(sorted[i],sorted[j])===0)j++;
     if(j-i>1){
       const group=sorted.slice(i,j);
       const gIds=new Set(group.map(s=>s.id));
@@ -34,22 +58,13 @@ export function resolveH2H(sorted, doneBetween, esAmericano=false) {
       const sub={};group.forEach(s=>{sub[s.id]={pts:0,sg:0,sp:0,gg:0,gp:0};});
       subMs.forEach(m=>{
         const a=sub[m.p1id],b=sub[m.p2id];if(!a||!b)return;
-        let sa=0,sb=0,ga,gb;
-        if(esAmericano){
-          ga=n(m.s1p1);gb=n(m.s1p2);
-          if(ga>gb)sa++;else sb++;
-        }else{
-          if(n(m.s1p1)>n(m.s1p2))sa++;else sb++;
-          if(n(m.s2p1)>n(m.s2p2))sa++;else sb++;
-          if(sa===sb){if(n(m.tbp1)>n(m.tbp2))sa++;else sb++;}
-          ga=n(m.s1p1)+n(m.s2p1);gb=n(m.s1p2)+n(m.s2p2);
-        }
+        const {sa,sb,ga,gb}=contarSetsYGames(m,esAmericano);
         a.sg+=sa;a.sp+=sb;b.sg+=sb;b.sp+=sa;
         a.gg+=ga;a.gp+=gb;
         b.gg+=gb;b.gp+=ga;
         if(sa>sb)a.pts+=2;else b.pts+=2;
       });
-      group.sort((a,b)=>sub[b.id].pts-sub[a.id].pts||(sub[b.id].sg-sub[b.id].sp)-(sub[a.id].sg-sub[a.id].sp)||(sub[b.id].gg-sub[b.id].gp)-(sub[a.id].gg-sub[a.id].gp));
+      group.sort((a,b)=>compararPosiciones(sub[a.id],sub[b.id]));
       for(let k=0;k<group.length;k++)sorted[i+k]=group[k];
     }
     i=j;
@@ -65,16 +80,7 @@ export function calcStandings(pairIds, pairs, matches, esAmericano=false) {
   const processMatch = (m) => {
     const a=s[m.p1id], b=s[m.p2id];
     if (!a||!b) return;
-    let sa=0, sb=0, ga, gb;
-    if (esAmericano) {
-      ga=n(m.s1p1); gb=n(m.s1p2);
-      if (ga>gb) sa++; else sb++;
-    } else {
-      if (n(m.s1p1)>n(m.s1p2)) sa++; else sb++;
-      if (n(m.s2p1)>n(m.s2p2)) sa++; else sb++;
-      if (sa===sb) { if (n(m.tbp1)>n(m.tbp2)) sa++; else sb++; }
-      ga=n(m.s1p1)+n(m.s2p1); gb=n(m.s1p2)+n(m.s2p2);
-    }
+    const {sa,sb,ga,gb}=contarSetsYGames(m,esAmericano);
     a.pj++; b.pj++; a.sg+=sa; a.sp+=sb; b.sg+=sb; b.sp+=sa; a.gg+=ga; a.gp+=gb; b.gg+=gb; b.gp+=ga;
     if (sa>sb) { a.g++; a.pts+=2; b.per++; } else { b.g++; b.pts+=2; a.per++; }
   };
@@ -91,7 +97,7 @@ export function calcStandings(pairIds, pairs, matches, esAmericano=false) {
   } else {
     const doneMs=matches.filter(m=>m.done&&pairIds.includes(m.p1id)&&pairIds.includes(m.p2id));
     doneMs.forEach(processMatch);
-    const sorted=pairIds.map(id=>({...s[id],pair:byId[id]})).sort((a,b)=>b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp));
+    const sorted=pairIds.map(id=>({...s[id],pair:byId[id]})).sort(compararPosiciones);
     return resolveH2H(sorted,doneMs,esAmericano);
   }
 }
@@ -115,7 +121,7 @@ export function calcClassified(cat, allowPartial=false) {
     if (st[1]) segundos.push({...st[1], grupo:g.nombre, pos:2, provisorio:!zonaCompleta});
     if (st[2]) terceros.push({...st[2], grupo:g.nombre, pos:3, provisorio:!zonaCompleta});
   });
-  terceros.sort((a,b) => b.pts-a.pts||(b.sg-b.sp)-(a.sg-a.sp)||(b.gg-b.gp)-(a.gg-a.gp));
+  terceros.sort(compararPosiciones);
   let bracketSize=4;
   while (bracketSize < primeros.length+segundos.length) bracketSize*=2;
   const tercerosNeeded = Math.max(0, bracketSize-primeros.length-segundos.length);
