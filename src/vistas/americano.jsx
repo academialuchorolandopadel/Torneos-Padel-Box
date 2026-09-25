@@ -1,5 +1,6 @@
 // Pantallas de las modalidades americano individual y americano parejas.
 import React, { useState } from "react";
+import { AMERICANO_POS_PTS } from "../logica/constantes.js";
 import { calcAmericanoIndStandings, calcAmericanoParejasStandings } from "../logica/resultados.js";
 
 export function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,onEliminar,onTogglePago,onGenerarFixture}){
@@ -61,7 +62,6 @@ export function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarRe
   const numRondas=jugadores.length>0?jugadores.length-1:0;
   const totalDone=partidos.filter(m=>m.done).length;
   const standings=calcAmericanoIndStandings(cat);
-  const POSPTS=[0,30,20,15,15,10,10,5,5];
   const rondaPartidos=partidos.filter(m=>m.ronda===rondaIdx);
   const handleSave=()=>{if(!editId||fA===""||fB==="")return;onGuardarResultado(editId,parseInt(fA),parseInt(fB));setEditId(null);setFA("");setFB("");};
   if(!cat.americanoFixtureGenerado)return(
@@ -123,7 +123,7 @@ export function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarRe
             <thead><tr><th>#</th><th>Jugador</th><th>G</th><th>P</th><th>Dif</th><th>Pts</th></tr></thead>
             <tbody>
               {standings.map((s,i)=>{
-                const pos=i+1,pts=POSPTS[pos]||5,dif=s.ganados-s.perdidos;
+                const pos=i+1,pts=AMERICANO_POS_PTS[pos]||5,dif=s.ganados-s.perdidos;
                 return<tr key={s.cedula}>
                   <td style={{fontFamily:"Oswald",fontWeight:700}}>{pos}</td>
                   <td className="em">{s.nombre}</td>
@@ -152,7 +152,6 @@ export function AmericanoParejasView({cat,isAdmin,onGuardarResultado,onGenerarFi
   const numRondas=N%2===0?N-1:N;
   const totalDone=partidos.filter(m=>m.done).length;
   const standings=calcAmericanoParejasStandings(cat);
-  const POSPTS=[0,30,20,15,15,10,10,5,5];
   const rondaPartidos=partidos.filter(m=>m.ronda===rondaIdx);
   const handleSave=()=>{if(!editId||fA===""||fB==="")return;onGuardarResultado(editId,parseInt(fA),parseInt(fB));setEditId(null);setFA("");setFB("");};
   if(!cat.americanoFixtureGenerado)return(
@@ -222,7 +221,7 @@ export function AmericanoParejasView({cat,isAdmin,onGuardarResultado,onGenerarFi
             <thead><tr><th>#</th><th>Pareja</th><th>G</th><th>P</th><th>Dif</th><th>Pts</th></tr></thead>
             <tbody>
               {standings.map((s,i)=>{
-                const pos=i+1,pts=POSPTS[pos]||5,dif=s.ganados-s.perdidos,p=byId[s.id];
+                const pos=i+1,pts=AMERICANO_POS_PTS[pos]||5,dif=s.ganados-s.perdidos,p=byId[s.id];
                 return<tr key={s.id}>
                   <td style={{fontFamily:"Oswald",fontWeight:700}}>{pos}</td>
                   <td><div className="em">{s.nombre}</div><div style={{fontSize:10,color:"var(--muted)"}}>{p?.j1nombre||p?.j1} · {p?.j2nombre||p?.j2}</div></td>
