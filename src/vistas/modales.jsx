@@ -1,6 +1,8 @@
 // Ventanas emergentes: login, cargar resultado, editar pareja/partido/cruce.
 import React, { useState, useEffect } from "react";
 import { iniciarSesionAdmin } from "../datos/sesion.js";
+import { DISPONIBILIDAD_LIBRE } from "../logica/calendario.js";
+import { DisponibilidadEditor } from "./calendario.jsx";
 import { COURTS, n, MIN_GAP, MIN_GAP_KO_SAME_DAY, MIN_GAP_KO_DIFF_DAY, SLOT_DEFS } from "../logica/constantes.js";
 
 export function PinModal({ onSuccess, onClose }) {
@@ -87,7 +89,9 @@ export function ResultModal({ match, cat, onSave, onClose, bestOf3=false, isAmer
   );
 }
 
-export function EditPairModal({ pair, onSave, onClose }) {
+export function EditPairModal({ pair, onSave, onClose, modoCalendario="finde" }) {
+  const esLargo=modoCalendario==="largo";
+  const [disp,setDisp]=useState(pair.disponibilidad||DISPONIBILIDAD_LIBRE);
   const [form,setForm]=useState({nombre:pair.nombre||"",j1nombre:pair.j1nombre||pair.j1||"",j1cedula:pair.j1cedula||"",j2nombre:pair.j2nombre||pair.j2||"",j2cedula:pair.j2cedula||"",sinProblemas:pair.sinProblemas!==false,notasLibres:pair.notasLibres||""});
   const [slotsRestr,setSlotsRestr]=useState(new Set(pair.restriccionesSlots||[]));
   const s=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
@@ -108,6 +112,11 @@ export function EditPairModal({ pair, onSave, onClose }) {
         <div className="col"><label className="lbl">Jugador 2 — Cédula</label><input className="inp" value={form.j2cedula} onChange={s("j2cedula")} placeholder="Ej: 7654321"/></div>
       </div>
       <div className="divider"/>
+      {esLargo?<>
+        <div className="card-title" style={{marginBottom:12}}>Disponibilidad semanal</div>
+        <DisponibilidadEditor value={disp} onChange={setDisp}/>
+        <div className="col mb12 mt12"><label className="lbl">Notas adicionales</label><input className="inp" value={form.notasLibres} onChange={s("notasLibres")} placeholder="ej: del 20 al 27 de octubre está de viaje"/></div>
+      </>:<>
       <div className="card-title" style={{marginBottom:12}}>Restricciones de Horario</div>
       <button className={`restr-toggle${form.sinProblemas?" active":""}`} onClick={toggleSP}>{form.sinProblemas?"✅ Sin problemas de horario":"☐ Sin problemas de horario"}</button>
       {!form.sinProblemas&&<>
@@ -121,8 +130,9 @@ export function EditPairModal({ pair, onSave, onClose }) {
         </div>
         <div className="col mb12 mt8"><label className="lbl">Notas adicionales</label><input className="inp" value={form.notasLibres} onChange={s("notasLibres")} placeholder="ej: solo pueden después de las 16hs el sábado"/></div>
       </>}
+      </>}
       <div className="row g8 mt8">
-        <button className="btn btn-primary f1" onClick={()=>onSave({...pair,...form,j1:form.j1nombre,j2:form.j2nombre,restriccionesSlots:Array.from(slotsRestr),sinProblemas:form.sinProblemas,restricciones:undefined})}>Guardar cambios</button>
+        <button className="btn btn-primary f1" onClick={()=>onSave({...pair,...form,j1:form.j1nombre,j2:form.j2nombre,restriccionesSlots:Array.from(slotsRestr),sinProblemas:form.sinProblemas,restricciones:undefined,...(esLargo?{disponibilidad:disp}:{})})}>Guardar cambios</button>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
       </div>
     </div></div>
