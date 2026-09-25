@@ -1,10 +1,12 @@
 // Componente principal: estado de la app, reglas de cada acción y navegación.
 // No habla con Firebase: todo lo que se lee o guarda pasa por datos/.
 import React, { useState, useEffect } from "react";
-import { uid, LETTERS, SLOT_DEFS, STAGE_PTS, AMERICANO_STAGE_PTS, CAT_NUM } from "./logica/constantes.js";
+import { uid, LETTERS, SLOT_DEFS } from "./logica/constantes.js";
 import { calcZoneDistribution, getAvailableSlots, calcCompatibilityScore, roundRobin, scheduleMatches, scheduleKnockoutMatches } from "./logica/programacion.js";
-import { calcMatchResult, calcClassified, calcAmericanoIndStandings, calcAmericanoParejasStandings } from "./logica/resultados.js";
-import { buildDynamicBracket, calcPairStages } from "./logica/llave.js";
+import { calcMatchResult, calcClassified } from "./logica/resultados.js";
+import { buildDynamicBracket } from "./logica/llave.js";
+import { calcularAsignaciones, aplicarPuntos } from "./logica/puntos.js";
+import { fechaHoyISO } from "./logica/fechas.js";
 import { CSS } from "./estilos.js";
 import { PinModal, PlayerLoginModal, ResultModal, EditPairModal, EditMatchModal, EditKOPairModal } from "./vistas/modales.jsx";
 import { Inscripcion, Fixture, Resultados, Posiciones, LlaveFinal, AgendaView } from "./vistas/torneo.jsx";
@@ -393,69 +395,23 @@ export default function App() {
     updateCat(activeCId,c=>({...c,knockoutRounds:nr}));setModal(null);await guardarKnockout(nr);
   }
 
+  // Una sola función para todas las modalidades: la regla vive en logica/puntos.js
   async function otorgarPuntos(){
     if(!activeCat||!activeTorneo)return;
-    const stages=calcPairStages(activeCat);
-    // Calcular fuera del setter de React: garantiza que los datos estén listos
-    // antes del batch.commit (el setter puede ser diferido por React).
-    const nxt={...jugadores};
-    const cedulasModificadas=new Set();
-    // Derivar género y categoría automáticamente del nombre de la categoría
-    const catNombreLow=activeCat.nombre.toLowerCase();
-    const derivedGenero=catNombreLow.includes("damas")?"F":catNombreLow.includes("caballeros")?"M":null;
-    const catLabelMatch=activeCat.nombre.match(/^(\w+)/);
-    const derivedCat=catLabelMatch?CAT_NUM[catLabelMatch[1].toLowerCase()]:null;
-    activeCat.parejas.forEach(pair=>{
-      const stage=stages[pair.id]||"zona";const stgMap=activeCat.modalidad==="americano_zonas"?AMERICANO_STAGE_PTS:STAGE_PTS;const pts=stgMap[stage]||(activeCat.modalidad==="americano_zonas"?5:0);
-      [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
-        if(!cedula)return;
-        const nombre=cedula===pair.j1cedula?pair.j1nombre||pair.j1:pair.j2nombre||pair.j2;
-        if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
-        // Busca entrada previa: mismo torneo/categoría, O misma edición FIP en año anterior
-        const prevEntry=nxt[cedula].historial.find(h=>
-          (h.torneoId===activeTId&&h.catId===activeCId)||
-          (activeTorneo.edicion&&h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId)
-        );
-        const nuevaEntry={torneoId:activeTId,catId:activeCId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion||"",catNombre:activeCat.nombre,stage,pts,fecha:prevEntry?.fecha||new Date().toLocaleDateString("es-PY")};
-        if(prevEntry){
-          const delta=pts-(prevEntry.pts||0);
-          nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+delta,
-            historial:nxt[cedula].historial.map(h=>h===prevEntry?nuevaEntry:h)};
-        }else{
-          nxt[cedula]={...nxt[cedula],nombre:nombre||nxt[cedula].nombre,totalPts:nxt[cedula].totalPts+pts,
-            historial:[...nxt[cedula].historial,nuevaEntry]};
-        }
-        cedulasModificadas.add(cedula);
-        if(derivedGenero&&!nxt[cedula].genero)nxt[cedula]={...nxt[cedula],genero:derivedGenero};
-        if(derivedCat&&!nxt[cedula].categoria)nxt[cedula]={...nxt[cedula],categoria:derivedCat};
-      });
-    });
-    // Puntos caen: jugadores con historial de esta edición que no compitieron esta vez
-    let ptsFallen=0;
-    if(activeTorneo.edicion){
-      Object.values(nxt).forEach(jug=>{
-        if(cedulasModificadas.has(jug.cedula))return;
-        const prevIdx=(jug.historial||[]).findIndex(h=>
-          h.torneoEdicion===activeTorneo.edicion&&
-          h.catNombre===activeCat.nombre&&
-          h.torneoId!==activeTId
-        );
-        if(prevIdx===-1)return;
-        const prevPts=jug.historial[prevIdx].pts||0;
-        nxt[jug.cedula]={...jug,totalPts:Math.max(0,jug.totalPts-prevPts),
-          historial:jug.historial.filter((_,i)=>i!==prevIdx)};
-        cedulasModificadas.add(jug.cedula);
-        ptsFallen++;
-      });
-    }
+    const asignaciones=calcularAsignaciones(activeCat);
+    const {jugadores:nxt,modificadas,ptsFallen}=aplicarPuntos({jugadores,asignaciones,torneo:activeTorneo,cat:activeCat,hoy:fechaHoyISO()});
+    // Actualización optimista; si el guardado falla, se vuelve atrás
+    const jugadoresAntes=jugadores,otorgadosAntes=!!activeCat.pointsAwarded;
     setJugadores(nxt);
     updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    // Solo persiste las cédulas que este torneo/categoría modificó
     try{
-      await datos.guardarPuntos(activeCId,[...cedulasModificadas].map(c=>[c,nxt[c]]));
+      // Solo persiste las cédulas que esta categoría modificó
+      await datos.guardarPuntos(activeCId,modificadas.map(c=>[c,nxt[c]]));
       alert(ptsFallen>0?"✅ Puntos guardados. "+ptsFallen+" jugador(es) perdieron puntos de la edición anterior.":"✅ Puntos guardados correctamente");
     }catch(err){
       console.error("Error guardando puntos:",err);
+      setJugadores(jugadoresAntes);
+      updateCat(activeCId,c=>({...c,pointsAwarded:otorgadosAntes}));
       alert("❌ Error al guardar los puntos: "+err.message);
     }
   }
@@ -506,37 +462,6 @@ export default function App() {
     await datos.actualizarCategoria(activeCId,{americanoPartidos:newPartidos});
   }
 
-  async function otorgarPuntosAmericanoIndividual(){
-    if(!activeCat||!activeTorneo)return;
-    const standings=calcAmericanoIndStandings(activeCat);
-    const POSPTS=[0,30,20,15,15,10,10,5,5];
-    const stageByPos=["","campeon","finalista","semifinal","semifinal","cuartos","cuartos","zona","zona"];
-    const nxt={...jugadores};const cedulasModificadas=new Set();
-    standings.forEach((s,idx)=>{
-      const pos=idx+1,pts=POSPTS[pos]||5,stage=stageByPos[pos]||"zona",cedula=s.cedula;
-      if(!nxt[cedula])nxt[cedula]={cedula,nombre:s.nombre,totalPts:0,historial:[]};
-      const prevEntry=nxt[cedula].historial.find(h=>(h.torneoId===activeTId&&h.catId===activeCId)||(activeTorneo.edicion&&h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId));
-      const nuevaEntry={torneoId:activeTId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion,catId:activeCId,catNombre:activeCat.nombre,stage,pts,fecha:activeTorneo.fecha||""};
-      if(prevEntry){const diff=pts-(prevEntry.pts||0);nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+diff,historial:nxt[cedula].historial.map(h=>h===prevEntry?nuevaEntry:h)};}
-      else{nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+pts,historial:[...nxt[cedula].historial,nuevaEntry]};}
-      cedulasModificadas.add(cedula);
-    });
-    let ptsFallen=0;
-    if(activeTorneo.edicion){
-      Object.values(nxt).forEach(jug=>{
-        if(cedulasModificadas.has(jug.cedula))return;
-        const prevIdx=(jug.historial||[]).findIndex(h=>h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId);
-        if(prevIdx===-1)return;
-        const prevPts=jug.historial[prevIdx].pts||0;
-        nxt[jug.cedula]={...jug,totalPts:Math.max(0,jug.totalPts-prevPts),historial:jug.historial.filter((_,i)=>i!==prevIdx)};
-        cedulasModificadas.add(jug.cedula);ptsFallen++;
-      });
-    }
-    setJugadores(nxt);updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    try{await datos.guardarPuntos(activeCId,[...cedulasModificadas].map(c=>[c,nxt[c]]));alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
-    catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
-  }
-
   async function generarFixtureAmericanoPareja(){
     const pairs=activeCat.parejas;const N=pairs.length;if(N<2)return;
     const sorted=[...pairs].sort((a,b)=>{
@@ -558,42 +483,6 @@ export default function App() {
     }
     updateCat(activeCId,c=>({...c,americanoPartidos:partidos,americanoFixtureGenerado:true}));
     await datos.actualizarCategoria(activeCId,{americanoPartidos:partidos,americanoFixtureGenerado:true});
-  }
-
-  async function otorgarPuntosAmericanoPareja(){
-    if(!activeCat||!activeTorneo)return;
-    const standings=calcAmericanoParejasStandings(activeCat);
-    const POSPTS=[0,30,20,15,15,10,10,5,5];
-    const stageByPos=["","campeon","finalista","semifinal","semifinal","cuartos","cuartos","zona","zona"];
-    const nxt={...jugadores};const cedulasModificadas=new Set();
-    standings.forEach((s,idx)=>{
-      const pos=idx+1,pts=POSPTS[pos]||5,stage=stageByPos[pos]||"zona";
-      const pair=activeCat.parejas.find(p=>p.id===s.id);if(!pair)return;
-      [pair.j1cedula,pair.j2cedula].forEach(cedula=>{
-        if(!cedula)return;
-        const nombre=cedula===pair.j1cedula?(pair.j1nombre||pair.j1):(pair.j2nombre||pair.j2);
-        if(!nxt[cedula])nxt[cedula]={cedula,nombre,totalPts:0,historial:[]};
-        const prevEntry=nxt[cedula].historial.find(h=>(h.torneoId===activeTId&&h.catId===activeCId)||(activeTorneo.edicion&&h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId));
-        const nuevaEntry={torneoId:activeTId,torneoNombre:activeTorneo.nombre,torneoEdicion:activeTorneo.edicion,catId:activeCId,catNombre:activeCat.nombre,stage,pts,fecha:activeTorneo.fecha||""};
-        if(prevEntry){const diff=pts-(prevEntry.pts||0);nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+diff,historial:nxt[cedula].historial.map(h=>h===prevEntry?nuevaEntry:h)};}
-        else{nxt[cedula]={...nxt[cedula],totalPts:nxt[cedula].totalPts+pts,historial:[...nxt[cedula].historial,nuevaEntry]};}
-        cedulasModificadas.add(cedula);
-      });
-    });
-    let ptsFallen=0;
-    if(activeTorneo.edicion){
-      Object.values(nxt).forEach(jug=>{
-        if(cedulasModificadas.has(jug.cedula))return;
-        const prevIdx=(jug.historial||[]).findIndex(h=>h.torneoEdicion===activeTorneo.edicion&&h.catNombre===activeCat.nombre&&h.torneoId!==activeTId);
-        if(prevIdx===-1)return;
-        const prevPts=jug.historial[prevIdx].pts||0;
-        nxt[jug.cedula]={...jug,totalPts:Math.max(0,jug.totalPts-prevPts),historial:jug.historial.filter((_,i)=>i!==prevIdx)};
-        cedulasModificadas.add(jug.cedula);ptsFallen++;
-      });
-    }
-    setJugadores(nxt);updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    try{await datos.guardarPuntos(activeCId,[...cedulasModificadas].map(c=>[c,nxt[c]]));alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
-    catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
   }
 
   async function actualizarCategoriaJugador(cedula,categoria){
@@ -709,12 +598,19 @@ export default function App() {
         historial:jug.historial.filter(h=>h.torneoId!==tid)
       };
     });
+    // Todo lo que cuelga del torneo, para limpiarlo de la base
+    const tElim=torneos.find(x=>x.id===tid);
+    const restos={
+      categorias:(tElim?.categorias||[]).map(c=>c.id),
+      parejas:(tElim?.categorias||[]).flatMap(c=>(c.parejas||[]).map(p=>p.id)),
+      partidos:(tElim?.categorias||[]).flatMap(c=>(c.partidos||[]).map(m=>m.id)),
+    };
     // Actualización optimista
     if(Object.keys(jugAfectados).length>0)setJugadores(prev=>({...prev,...jugAfectados}));
     setTorneos(p=>p.filter(x=>x.id!==tid));
     // Batch atómico: borra el torneo + actualiza todos los jugadores afectados
     try{
-      await datos.eliminarTorneoYAjustarPuntos(tid,Object.values(jugAfectados));
+      await datos.eliminarTorneoYAjustarPuntos(tid,Object.values(jugAfectados),restos);
       const n=Object.keys(jugAfectados).length;
       if(n>0)alert("Torneo eliminado. Puntos ajustados para "+n+" jugador(es).");
     }catch(err){
@@ -866,8 +762,8 @@ export default function App() {
         <>
           {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
-          {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntosAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
-          {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntosAmericanoPareja} pointsAwarded={activeCat?.pointsAwarded}/>}
+          {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntos} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
+          {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntos} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
