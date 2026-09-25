@@ -61,6 +61,12 @@ export const STAGE_LABEL = { campeon:"🥇 Campeón", finalista:"🥈 Finalista"
 
 export const AMERICANO_STAGE_PTS={campeon:30,finalista:20,semifinal:15,cuartos:10,octavos:5,dieciseisavos:5,zona:5};
 
+// Americanos todos contra todos: puntos y etapa según la posición final (índice = posición).
+// Del 9° en adelante: 5 puntos, etapa "zona".
+export const AMERICANO_POS_PTS=[0,30,20,15,15,10,10,5,5];
+
+export const AMERICANO_POS_STAGE=["","campeon","finalista","semifinal","semifinal","cuartos","cuartos","zona","zona"];
+
 export const ROUND_NAMES_BY_SIZE = {
   2: ["FINAL"],
   4: ["SEMIS", "FINAL"],
