@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { STAGE_LABEL, CAT_LABELS, CAT_COLORS, GENERO_COLORS, FIP_LINKS } from "../logica/constantes.js";
 import { calcStandings, calcPlayerStats } from "../logica/resultados.js";
 import { getRoundNames, calcPairStages } from "../logica/llave.js";
+import { formatearFecha } from "../logica/fechas.js";
 
 export function ReglamentoView(){
   return (
@@ -178,7 +179,7 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
                 <div key={i} className="hist-item">
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}{h.manual&&<span style={{fontSize:9,color:"var(--muted)",marginLeft:4}}>(manual)</span>}</div>
-                    <div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {h.fecha}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {formatearFecha(h.fecha)}</div>
                   </div>
                   <div className="col" style={{alignItems:"flex-end",gap:3}}>
                     <span className="badge bg">{STAGE_LABEL[h.stage]||"✏️ Manual"}</span>
