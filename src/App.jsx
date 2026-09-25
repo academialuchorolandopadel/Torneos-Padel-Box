@@ -13,6 +13,8 @@ import { Inscripcion, Fixture, Resultados, Posiciones, LlaveFinal, AgendaView } 
 import { JugadoresView, MiTorneo, ReglamentoView } from "./vistas/jugadores.jsx";
 import { InscripcionAmericanoIndividual, AmericanoIndividualView, AmericanoParejasView } from "./vistas/americano.jsx";
 import * as datos from "./datos/firestore.js";
+import { CalendarioClubView } from "./vistas/calendario.jsx";
+import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA } from "./logica/calendario.js";
 import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesionJugador, borrarSesionJugador } from "./datos/sesion.js";
 
 const TABS=[
@@ -34,7 +36,7 @@ export default function App() {
   const [subview,setSubview]=useState("inscripcion");
   const [appView,setAppView]=useState("torneos");
   const [modal,setModal]=useState(null);
-  const [tForm,setTForm]=useState({nombre:"",edicion:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:""});
+  const [tForm,setTForm]=useState({nombre:"",edicion:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:"",calendario:"finde",maxPartidosSemana:MAX_PARTIDOS_SEMANA});
   const [cForm,setCForm]=useState({nombre:"",modalidad:"estandar"});
   const [editingName,setEditingName]=useState(false);
   const [editingNameVal,setEditingNameVal]=useState("");
@@ -50,6 +52,7 @@ export default function App() {
   const [playerLoginError,setPlayerLoginError]=useState("");
   const [playerCedula,setPlayerCedula]=useState(null);
   const [publicRanking,setPublicRanking]=useState(false);
+  const [calendarioClub,setCalendarioClub]=useState({});
 
   useEffect(()=>{
     // Sesion admin: Firebase Auth (persiste entre recargas y dispositivos)
@@ -63,8 +66,8 @@ export default function App() {
   const loadData=async(isRefresh=false)=>{
     try {
       if(isRefresh)setRefreshing(true);else setLoading(true);
-      const {torneos:tc,jugadores:jugs}=await datos.cargarTodo();
-      setTorneos(tc);
+      const {torneos:tc,jugadores:jugs,calendarioClub:cal}=await datos.cargarTodo();
+      setTorneos(tc);setCalendarioClub(cal);
       setJugadores(jugs);setError(null);
       } catch(err){console.error(err);setError(err.message);}
       finally{if(isRefresh)setRefreshing(false);else setLoading(false);}
@@ -174,9 +177,11 @@ export default function App() {
   async function crearTorneo(){
     if(!tForm.nombre.trim())return;
     const newId=uid();
-    const nuevo={id:newId,nombre:tForm.nombre.trim(),edicion:tForm.edicion.trim(),fecha:tForm.fecha,horaInicio:tForm.horaInicio||"",catTipo:tForm.catTipo,catNum:tForm.catNum,categorias:[]};
-    setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",edicion:"",edicionSel:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:""});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
-    try{await datos.crearTorneo({id:newId,nombre:nuevo.nombre,edicion:nuevo.edicion,fecha:nuevo.fecha,horaInicio:nuevo.horaInicio,catTipo:nuevo.catTipo,catNum:nuevo.catNum});}catch(err){console.error(err);}
+    const largo=tForm.calendario==="largo";
+    const extraLargo=largo?{calendario:"largo",maxPartidosSemana:Number(tForm.maxPartidosSemana)||MAX_PARTIDOS_SEMANA,duracionPartido:DURACION_PARTIDO}:{};
+    const nuevo={id:newId,nombre:tForm.nombre.trim(),edicion:tForm.edicion.trim(),fecha:tForm.fecha,horaInicio:tForm.horaInicio||"",catTipo:tForm.catTipo,catNum:tForm.catNum,...extraLargo,categorias:[]};
+    setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",edicion:"",edicionSel:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:"",calendario:"finde",maxPartidosSemana:MAX_PARTIDOS_SEMANA});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
+    try{await datos.crearTorneo({id:newId,nombre:nuevo.nombre,edicion:nuevo.edicion,fecha:nuevo.fecha,horaInicio:nuevo.horaInicio,catTipo:nuevo.catTipo,catNum:nuevo.catNum,...extraLargo});}catch(err){console.error(err);}
   }
 
   async function guardarNombreTorneo(){
@@ -243,6 +248,7 @@ export default function App() {
 
   async function generarFixture(){
     if(!activeCat||activeCat.parejas.length<3)return;
+    if(activeTorneo?.calendario==="largo")return; // el armado por fechas llega en la etapa 2
     const pairs=activeCat.parejas;const dist=calcZoneDistribution(pairs.length);
     const grupos=[];let li=0;
     for(let i=0;i<dist.zonasDe3;i++)grupos.push({id:uid(),nombre:`ZONA ${LETTERS[li++]}`});
@@ -586,6 +592,16 @@ export default function App() {
     }
   }
 
+  // Calendario del club: actualización optimista; si falla el guardado, vuelve atrás
+  async function guardarDiasClub(dias){
+    const antes=calendarioClub;
+    setCalendarioClub(prev=>{const nxt={...prev};dias.forEach(({fecha,canchas})=>{
+      const hay=Object.values(canchas||{}).some(rs=>rs&&rs.length);
+      if(hay)nxt[fecha]={fecha,canchas};else delete nxt[fecha];});return nxt;});
+    try{await datos.guardarDiasClub(dias);}
+    catch(err){console.error("Error guardando calendario:",err);setCalendarioClub(antes);alert("Error al guardar el calendario: "+err.message);}
+  }
+
   async function eliminarTorneo(tid){
     // Calcular jugadores afectados ANTES de actualizar el estado
     const jugAfectados={};
@@ -660,12 +676,13 @@ export default function App() {
       <div className="nav-tabs" style={{marginLeft:"auto"}}>
         <button className={`nav-tab${appView==="torneos"?" on":""}`} onClick={()=>setAppView("torneos")}>🎾 Torneos</button>
         <button className={`nav-tab jug${appView==="jugadores"?" on":""}`} onClick={()=>setAppView("jugadores")}>🏅 Jugadores</button>
+        {isAdmin&&<button className={`nav-tab${appView==="calendario"?" on":""}`} onClick={()=>setAppView("calendario")}>📆 Calendario</button>}
         <button className={`nav-tab${appView==="reglamento"?" on":""}`} onClick={()=>setAppView("reglamento")}>📖 Reglamento</button>
       </div>
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
@@ -686,6 +703,7 @@ export default function App() {
                 <div className="t-card-name">{t.nombre}</div>
                 <div className="t-card-meta">{t.fecha||"Sin fecha"}{t.edicion&&` · ${t.edicion}`}</div>
                 <div className="row wrap g8" style={{marginBottom:6}}>
+                  {t.calendario==="largo"&&<span className="badge bg">📆 Torneo largo</span>}
                   {t.catTipo==="fijo"&&t.catNum&&<span className="badge by">{t.catNum}° Categoría</span>}
                   {t.catTipo==="suma"&&t.catNum&&<span className="badge bb">Suma {t.catNum}</span>}
                 </div>
@@ -710,6 +728,17 @@ export default function App() {
       </div>
       <div className="col mb12"><label className="lbl">Fecha de inicio</label><input className="inp" type="date" value={tForm.fecha} onChange={e=>setTForm(p=>({...p,fecha:e.target.value}))}/></div>
       <div className="col mb12"><label className="lbl">Hora de inicio</label><input className="inp" type="time" value={tForm.horaInicio||""} onChange={e=>setTForm(p=>({...p,horaInicio:e.target.value}))}/></div>
+      <div className="col mb12"><label className="lbl">Tipo de calendario</label>
+        <select className="inp" value={tForm.calendario} onChange={e=>setTForm(p=>({...p,calendario:e.target.value}))}>
+          <option value="finde">Fin de semana (grilla fija jueves a domingo)</option>
+          <option value="largo">Torneo largo (partidos por fecha, durante semanas)</option>
+        </select>
+        {tForm.calendario==="largo"&&<div className="row g8 mt8" style={{fontSize:12,color:"var(--muted)"}}>
+          <span>Máx. partidos por semana por pareja</span>
+          <input className="inp" type="number" min={1} max={7} style={{width:64}} value={tForm.maxPartidosSemana} onChange={e=>setTForm(p=>({...p,maxPartidosSemana:e.target.value}))}/>
+          <span>· partidos de {DURACION_PARTIDO} min</span>
+        </div>}
+      </div>
       <div className="col mb12"><label className="lbl">Tipo de categoria</label>
         <select className="inp" value={tForm.catTipo} onChange={e=>setTForm(p=>({...p,catTipo:e.target.value,catNum:""}))}>
           <option value="libre">Libre (sin restricción)</option>
@@ -760,12 +789,12 @@ export default function App() {
       </div>
       {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
-          {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores}/>}
+          {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntos} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntos} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
-          {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
+          {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
           {subview==="llave"&&<LlaveFinal cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
@@ -779,7 +808,7 @@ export default function App() {
       <div className="col mb16"><label className="lbl">Modalidad</label><select className="inp" value={cForm.modalidad} onChange={e=>setCForm(p=>({...p,modalidad:e.target.value}))}><option value="estandar">Estándar (Zonas + Llave)</option><option value="americano_zonas">🎯 Americano (Zonas + Llave, 1 set)</option><option value="americano_individual">🏓 Americano Individual (todos con todos)</option><option value="americano_pareja">🎾 Americano Parejas (todos contra todos, 1 set)</option></select></div>
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearCategoria}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
     </div></div>}
-    {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)}/>}
+    {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"}/>}
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)} isAmericano={activeCat?.modalidad==="americano_zonas"}/>}
     {modal?.type==="koRes"&&activeCat&&(()=>{
       const esAmKO=activeCat?.modalidad==="americano_zonas";
