@@ -1,5 +1,6 @@
 // Ventanas emergentes: login, cargar resultado, editar pareja/partido/cruce.
 import React, { useState, useEffect } from "react";
+import { iniciarSesionAdmin } from "../datos/sesion.js";
 import { COURTS, n, MIN_GAP, MIN_GAP_KO_SAME_DAY, MIN_GAP_KO_DIFF_DAY, SLOT_DEFS } from "../logica/constantes.js";
 
 export function PinModal({ onSuccess, onClose }) {
@@ -11,7 +12,7 @@ export function PinModal({ onSuccess, onClose }) {
     if(!email.trim()||!pass||busy)return;
     setBusy(true);setError("");
     try{
-      await window.firebaseAuth.signInWithEmailAndPassword(window.auth,email.trim(),pass);
+      await iniciarSesionAdmin(email.trim(),pass);
       onSuccess();
     }catch(err){
       console.error(err);
