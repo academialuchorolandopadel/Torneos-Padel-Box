@@ -64,13 +64,29 @@ export async function actualizarTorneo(torneoId,cambios){
   await fs().updateDoc(ref("torneos",torneoId),cambios);
 }
 
-// Atómico: borra el torneo y guarda los jugadores con los puntos ya descontados.
-// Ojo: no borra las categorías, parejas ni partidos de ese torneo (quedan en la base).
-export async function eliminarTorneoYAjustarPuntos(torneoId,jugadoresActualizados){
+// Paso 1, atómico: borra el torneo y guarda los jugadores con los puntos ya
+// descontados. Si esto falla, no se borró nada.
+// Paso 2, limpieza: borra las categorías, parejas y partidos del torneo, en
+// tandas (Firestore acepta hasta 500 operaciones por tanda). Si la limpieza
+// falla, el torneo ya no existe y lo que quedó no se ve en la app: no se avisa
+// como error, solo queda registrado en la consola.
+export async function eliminarTorneoYAjustarPuntos(torneoId,jugadoresActualizados,restos={}){
   const batch=fs().writeBatch(db());
   batch.delete(ref("torneos",torneoId));
   jugadoresActualizados.forEach(jug=>batch.set(ref("jugadores",jug.cedula),jug));
   await batch.commit();
+  const aBorrar=[
+    ...(restos.partidos||[]).map(id=>["partidos",id]),
+    ...(restos.parejas||[]).map(id=>["parejas",id]),
+    ...(restos.categorias||[]).map(id=>["categorias",id]),
+  ];
+  try{
+    for(let i=0;i<aBorrar.length;i+=400){
+      const tanda=fs().writeBatch(db());
+      aBorrar.slice(i,i+400).forEach(([col,id])=>tanda.delete(ref(col,id)));
+      await tanda.commit();
+    }
+  }catch(err){console.error("Torneo eliminado, pero quedaron datos sin limpiar:",err);}
 }
 
 // ===== Categorías =====
