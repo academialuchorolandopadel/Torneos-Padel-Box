@@ -51,7 +51,15 @@ export async function cargarTodo(){
   }));
   const js=await getDocs(collection(db(),"jugadores"));
   const jugadores={};js.docs.forEach(d=>{jugadores[d.id]={cedula:d.id,...d.data()};});
-  return {torneos,jugadores};
+  // Calendario del club: un documento por fecha, con los rangos libres de cada cancha.
+  // Si no se puede leer (por ejemplo, reglas de seguridad sin esta colección),
+  // la app carga igual: solo el calendario queda vacío.
+  const calendarioClub={};
+  try{
+    const cs=await getDocs(collection(db(),"calendarioClub"));
+    cs.docs.forEach(d=>{calendarioClub[d.id]={fecha:d.id,...d.data()};});
+  }catch(err){console.error("No se pudo leer el calendario del club:",err);}
+  return {torneos,jugadores,calendarioClub};
 }
 
 // ===== Torneos =====
@@ -159,5 +167,19 @@ export async function guardarPuntos(catId,entradas){
   const batch=fs().writeBatch(db());
   entradas.forEach(([cedula,jugador])=>batch.set(ref("jugadores",cedula),jugador));
   batch.update(ref("categorias",catId),{pointsAwarded:true});
+  await batch.commit();
+}
+
+// ===== Calendario del club (torneos largos) =====
+
+// Guarda varios días de una vez (atómico). Un día sin rangos se borra.
+// dias = [{fecha:"2026-10-14", canchas:{"BOX 1":[{desde,hasta}], ...}}, ...]
+export async function guardarDiasClub(dias){
+  const batch=fs().writeBatch(db());
+  dias.forEach(({fecha,canchas})=>{
+    const limpias=Object.fromEntries(Object.entries(canchas||{}).filter(([,rs])=>rs&&rs.length));
+    if(Object.keys(limpias).length)batch.set(ref("calendarioClub",fecha),{fecha,canchas:limpias});
+    else batch.delete(ref("calendarioClub",fecha));
+  });
   await batch.commit();
 }
