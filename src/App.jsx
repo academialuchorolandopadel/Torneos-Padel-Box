@@ -1,7 +1,7 @@
-// Componente principal: estado de la app, carga/guardado en Firebase
-// y navegación entre pantallas.
+// Componente principal: estado de la app, reglas de cada acción y navegación.
+// No habla con Firebase: todo lo que se lee o guarda pasa por datos/.
 import React, { useState, useEffect } from "react";
-import { uid, LETTERS, SLOT_DEFS, BLOQUE_TO_SLOTS, STAGE_PTS, AMERICANO_STAGE_PTS, CAT_NUM } from "./logica/constantes.js";
+import { uid, LETTERS, SLOT_DEFS, STAGE_PTS, AMERICANO_STAGE_PTS, CAT_NUM } from "./logica/constantes.js";
 import { calcZoneDistribution, getAvailableSlots, calcCompatibilityScore, roundRobin, scheduleMatches, scheduleKnockoutMatches } from "./logica/programacion.js";
 import { calcMatchResult, calcClassified, calcAmericanoIndStandings, calcAmericanoParejasStandings } from "./logica/resultados.js";
 import { buildDynamicBracket, calcPairStages } from "./logica/llave.js";
@@ -10,6 +10,8 @@ import { PinModal, PlayerLoginModal, ResultModal, EditPairModal, EditMatchModal,
 import { Inscripcion, Fixture, Resultados, Posiciones, LlaveFinal, AgendaView } from "./vistas/torneo.jsx";
 import { JugadoresView, MiTorneo, ReglamentoView } from "./vistas/jugadores.jsx";
 import { InscripcionAmericanoIndividual, AmericanoIndividualView, AmericanoParejasView } from "./vistas/americano.jsx";
+import * as datos from "./datos/firestore.js";
+import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesionJugador, borrarSesionJugador } from "./datos/sesion.js";
 
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
@@ -47,52 +49,21 @@ export default function App() {
   const [playerCedula,setPlayerCedula]=useState(null);
   const [publicRanking,setPublicRanking]=useState(false);
 
-  const {db,firestore}=window;
-  const {collection,doc,setDoc,getDocs,updateDoc,deleteDoc,query,where,writeBatch}=firestore;
-
   useEffect(()=>{
     // Sesion admin: Firebase Auth (persiste entre recargas y dispositivos)
-    const unsub=window.firebaseAuth.onAuthStateChanged(window.auth,(user)=>{setIsAdmin(!!user);});
-    // Sesion jugador: igual que antes (cedula en sessionStorage)
-    const p=sessionStorage.getItem("padelbox_player");if(p==="true"){setIsPlayer(true);setPlayerCedula(sessionStorage.getItem("padelbox_player_cedula"));}
+    const unsub=escucharSesionAdmin(setIsAdmin);
+    // Sesion jugador: cedula guardada en el navegador
+    const sj=leerSesionJugador();if(sj.activa){setIsPlayer(true);setPlayerCedula(sj.cedula);}
     return unsub;
   },[]);
 
 
-  const migratePairRestrictions=(p)=>{
-    if (!p.restriccionesSlots&&p.restricciones){const ns=new Set();p.restricciones.forEach(b=>{(BLOQUE_TO_SLOTS[b]||[]).forEach(s=>ns.add(s));});return {...p,restriccionesSlots:Array.from(ns),restricciones:undefined};}
-    return p;
-  };
-
   const loadData=async(isRefresh=false)=>{
     try {
       if(isRefresh)setRefreshing(true);else setLoading(true);
-        const ts=await getDocs(collection(db,"torneos"));
-        const td=ts.docs.map(d=>({id:d.id,...d.data()}));
-        const tc=await Promise.all(td.map(async t=>{
-          const cs=await getDocs(query(collection(db,"categorias"),where("torneoId","==",t.id)));
-          const cats=await Promise.all(cs.docs.map(async dc=>{
-            const cat={id:dc.id,...dc.data()};
-            const ps=await getDocs(query(collection(db,"parejas"),where("categoriaId","==",cat.id)));
-            cat.parejas=ps.docs.map(d=>migratePairRestrictions({id:d.id,...d.data()}));
-            const ms=await getDocs(query(collection(db,"partidos"),where("categoriaId","==",cat.id)));
-            cat.partidos=ms.docs.map(d=>{const p={id:d.id,...d.data()};if(p.done&&p.winner==null&&p.p1id&&p.p2id)p.winner=calcMatchResult(p);return p;});
-            if(cat.knockoutMatchesFlat&&cat.knockoutMatchesFlat.length>0){
-              const rounds=[];
-              cat.knockoutMatchesFlat.forEach(m=>{
-                if(!rounds[m.round])rounds[m.round]=[];
-                rounds[m.round][m.slot]=m;
-              });
-              cat.knockoutRounds=rounds.map(r=>(r||[]).filter(Boolean));
-            }else{cat.knockoutRounds=cat.knockoutRounds||[];}
-            return cat;
-          }));
-          return {...t,categorias:cats};
-        }));
-        setTorneos(tc);
-        const js=await getDocs(collection(db,"jugadores"));
-        const jugs={};js.docs.forEach(d=>{jugs[d.id]={cedula:d.id,...d.data()};});
-        setJugadores(jugs);setError(null);
+      const {torneos:tc,jugadores:jugs}=await datos.cargarTodo();
+      setTorneos(tc);
+      setJugadores(jugs);setError(null);
       } catch(err){console.error(err);setError(err.message);}
       finally{if(isRefresh)setRefreshing(false);else setLoading(false);}
   };
@@ -103,17 +74,18 @@ export default function App() {
   const allMatches=activeTorneo?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])])||[];
 
   const getAllCedulas=()=>{const s=new Set();torneos.forEach(t=>t.categorias?.forEach(c=>c.parejas?.forEach(p=>{if(p.j1cedula)s.add(p.j1cedula);if(p.j2cedula)s.add(p.j2cedula);})));return s;};
-  const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){sessionStorage.setItem("padelbox_player","true");sessionStorage.setItem("padelbox_player_cedula",cedula);setIsPlayer(true);setPlayerCedula(cedula);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
-  const handleLogoutAdmin=async()=>{try{await window.firebaseAuth.signOut(window.auth);}catch(err){console.error(err);}setIsAdmin(false);};
-  const handleLogoutPlayer=()=>{sessionStorage.removeItem("padelbox_player");sessionStorage.removeItem("padelbox_player_cedula");setIsPlayer(false);setPlayerCedula(null);};
+  const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){guardarSesionJugador(cedula);setIsPlayer(true);setPlayerCedula(cedula);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
+  const handleLogoutAdmin=async()=>{try{await cerrarSesionAdmin();}catch(err){console.error(err);}setIsAdmin(false);};
+  const handleLogoutPlayer=()=>{borrarSesionJugador();setIsPlayer(false);setPlayerCedula(null);};
 
   function updateCat(catId,fn){setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:t.categorias.map(c=>c.id===catId?fn(c):c)}:t));}
 
-  async function guardarCategoria(cat){const{parejas,partidos,knockoutRounds:kr,...rest}=cat;await setDoc(doc(db,"categorias",cat.id),{...rest,knockoutMatchesFlat:(kr||[]).flat(),torneoId:activeTId});}
-  async function guardarPareja(p){const ts={...p,categoriaId:activeCId};delete ts.restricciones;if(ts.j1===undefined)delete ts.j1;if(ts.j2===undefined)delete ts.j2;await setDoc(doc(db,"parejas",p.id),ts);}
-  async function guardarPartido(p){await setDoc(doc(db,"partidos",p.id),{...p,categoriaId:activeCId});}
+  // Atajos que completan el torneo/categoría activos
+  async function guardarCategoria(cat){await datos.guardarCategoria(cat,activeTId);}
+  async function guardarPareja(p){await datos.guardarPareja(p,activeCId);}
+  async function guardarPartido(p){await datos.guardarPartido(p,activeCId);}
   async function guardarKnockout(rounds){
-    try{await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:rounds.flat(),knockoutGenerated:true});}
+    try{await datos.guardarLlave(activeCId,rounds,true);}
     catch(err){console.error("Error guardando resultado KO:",err);alert("Error al guardar: "+err.message);}
   }
 
@@ -130,11 +102,11 @@ export default function App() {
     if(pi!==-1){
       const np=[...targetCat.partidos];np[pi]={...np[pi],...changes};
       updateCat(targetCatId,c=>({...c,partidos:np}));
-      await updateDoc(doc(db,"partidos",matchId),changes);updated=true;
+      await datos.actualizarPartido(matchId,changes);updated=true;
     } else {
       let nk=targetCat.knockoutRounds?[...targetCat.knockoutRounds]:[];let found=false;
       for(let i=0;i<nk.length;i++){const mi=nk[i].findIndex(m=>m.id===matchId);if(mi!==-1){nk[i]=nk[i].map((m,k)=>k===mi?{...m,...changes}:m);found=true;break;}}
-      if(found){updateCat(targetCatId,c=>({...c,knockoutRounds:nk}));await updateDoc(doc(db,"categorias",targetCatId),{knockoutMatchesFlat:nk.flat()});updated=true;}
+      if(found){updateCat(targetCatId,c=>({...c,knockoutRounds:nk}));await datos.guardarLlave(targetCatId,nk);updated=true;}
     }
     if(!updated)console.warn("Partido no encontrado:",matchId);
     setModal(null);
@@ -194,7 +166,7 @@ export default function App() {
     const esAmericanoLlave=catData.modalidad&&catData.modalidad!=="estandar";
     const rescheduled=esAmericanoLlave?finalRounds:scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:rescheduled}));
-    await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:rescheduled.flat()});
+    await datos.guardarLlave(activeCId,rescheduled);
   }
 
   async function crearTorneo(){
@@ -202,18 +174,18 @@ export default function App() {
     const newId=uid();
     const nuevo={id:newId,nombre:tForm.nombre.trim(),edicion:tForm.edicion.trim(),fecha:tForm.fecha,horaInicio:tForm.horaInicio||"",catTipo:tForm.catTipo,catNum:tForm.catNum,categorias:[]};
     setTorneos(prev=>[...prev,nuevo]);setTForm({nombre:"",edicion:"",edicionSel:"",fecha:"",horaInicio:"",catTipo:"libre",catNum:""});setModal(null);setActiveTId(newId);setActiveCId(null);setSubview("inscripcion");
-    try{await setDoc(doc(db,"torneos",newId),{id:newId,nombre:nuevo.nombre,edicion:nuevo.edicion,fecha:nuevo.fecha,horaInicio:nuevo.horaInicio,catTipo:nuevo.catTipo,catNum:nuevo.catNum});}catch(err){console.error(err);}
+    try{await datos.crearTorneo({id:newId,nombre:nuevo.nombre,edicion:nuevo.edicion,fecha:nuevo.fecha,horaInicio:nuevo.horaInicio,catTipo:nuevo.catTipo,catNum:nuevo.catNum});}catch(err){console.error(err);}
   }
 
   async function guardarNombreTorneo(){
     if(!editingNameVal.trim())return;
-    await updateDoc(doc(db,"torneos",activeTId),{nombre:editingNameVal.trim()});
+    await datos.actualizarTorneo(activeTId,{nombre:editingNameVal.trim()});
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,nombre:editingNameVal.trim()}:t));setEditingName(false);
   }
 
   async function guardarEdicionTorneo(){
     const val=editingEdicionVal.trim();
-    await updateDoc(doc(db,"torneos",activeTId),{edicion:val});
+    await datos.actualizarTorneo(activeTId,{edicion:val});
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,edicion:val}:t));
     setEditingEdicion(false);
   }
@@ -245,12 +217,12 @@ export default function App() {
 
   async function eliminarPareja(id){
     updateCat(activeCId,c=>({...c,parejas:c.parejas.filter(p=>p.id!==id)}));
-    try{await deleteDoc(doc(db,"parejas",id));}
+    try{await datos.eliminarPareja(id);}
     catch(err){console.error("Error eliminando pareja:",err);alert("Error al eliminar la pareja: "+err.message);}
   }
 
   async function editarPareja(updated){
-    const uc=migratePairRestrictions(updated);
+    const uc=datos.migratePairRestrictions(updated);
     updateCat(activeCId,c=>({...c,parejas:c.parejas.map(p=>p.id===uc.id?uc:p)}));
     setJugadores(prev=>{const nxt={...prev};[{cedula:uc.j1cedula,nombre:uc.j1nombre||uc.j1},{cedula:uc.j2cedula,nombre:uc.j2nombre||uc.j2}].filter(j=>j.cedula&&nxt[j.cedula]).forEach(j=>{nxt[j.cedula]={...nxt[j.cedula],nombre:j.nombre};});return nxt;});
     setModal(null);await guardarPareja(uc);
@@ -336,7 +308,7 @@ export default function App() {
     const scheduled=esAmericanoLlave?newRounds:scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:scheduled,knockoutGenerated:true}));
     try{
-      await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:scheduled.flat(),knockoutGenerated:true});
+      await datos.guardarLlave(activeCId,scheduled,true);
     }catch(err){
       console.error("Error guardando llave:",err);
       alert("Error al guardar la llave: "+err.message);
@@ -368,12 +340,8 @@ export default function App() {
     updateCat(activeCId,c=>({...c,partidos:newPartidos}));
     setModal(null);
     // Persistir en Firestore (atómico para el partido + C/D de zona4)
-    const batchR=writeBatch(db);
-    batchR.update(doc(db,"partidos",matchId),{...result,winner});
-    if(updatedC)batchR.update(doc(db,"partidos",updatedC.id),updatedC);
-    if(updatedD)batchR.update(doc(db,"partidos",updatedD.id),updatedD);
     try{
-      await batchR.commit();
+      await datos.guardarResultadoZona(matchId,{...result,winner},[updatedC,updatedD].filter(Boolean));
     }catch(err){
       console.error("Error guardando resultado:",err);
       // Revertir el optimismo: el estado local vuelve a lo que tenía Firestore
@@ -482,12 +450,9 @@ export default function App() {
     }
     setJugadores(nxt);
     updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    const batch=writeBatch(db);
     // Solo persiste las cédulas que este torneo/categoría modificó
-    [...cedulasModificadas].forEach(cedula=>batch.set(doc(db,"jugadores",cedula),nxt[cedula]));
-    batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
     try{
-      await batch.commit();
+      await datos.guardarPuntos(activeCId,[...cedulasModificadas].map(c=>[c,nxt[c]]));
       alert(ptsFallen>0?"✅ Puntos guardados. "+ptsFallen+" jugador(es) perdieron puntos de la edición anterior.":"✅ Puntos guardados correctamente");
     }catch(err){
       console.error("Error guardando puntos:",err);
@@ -500,13 +465,13 @@ export default function App() {
     if(list.some(j=>j.cedula===jugador.cedula))return;
     const newList=[...list,{...jugador,pago:false}];
     updateCat(activeCId,c=>({...c,jugadoresAmericano:newList}));
-    await updateDoc(doc(db,"categorias",activeCId),{jugadoresAmericano:newList});
+    await datos.actualizarCategoria(activeCId,{jugadoresAmericano:newList});
   }
 
   async function eliminarJugadorAmericanoIndividual(cedula){
     const newList=(activeCat.jugadoresAmericano||[]).filter(j=>j.cedula!==cedula);
     updateCat(activeCId,c=>({...c,jugadoresAmericano:newList}));
-    await updateDoc(doc(db,"categorias",activeCId),{jugadoresAmericano:newList});
+    await datos.actualizarCategoria(activeCId,{jugadoresAmericano:newList});
   }
 
   async function generarFixtureAmericanoIndividual(){
@@ -526,19 +491,19 @@ export default function App() {
       const last=idxs[N-1];for(let i=N-1;i>1;i--)idxs[i]=idxs[i-1];idxs[1]=last;
     }
     updateCat(activeCId,c=>({...c,americanoPartidos:partidos,americanoFixtureGenerado:true}));
-    await updateDoc(doc(db,"categorias",activeCId),{americanoPartidos:partidos,americanoFixtureGenerado:true});
+    await datos.actualizarCategoria(activeCId,{americanoPartidos:partidos,americanoFixtureGenerado:true});
   }
 
   async function togglePagoAmericanoIndividual(cedula){
     const newList=(activeCat.jugadoresAmericano||[]).map(j=>j.cedula===cedula?{...j,pago:!j.pago}:j);
     updateCat(activeCId,c=>({...c,jugadoresAmericano:newList}));
-    await updateDoc(doc(db,"categorias",activeCId),{jugadoresAmericano:newList});
+    await datos.actualizarCategoria(activeCId,{jugadoresAmericano:newList});
   }
 
   async function guardarResultadoAmericanoIndividual(matchId,juegosA,juegosB){
     const newPartidos=(activeCat.americanoPartidos||[]).map(m=>m.id===matchId?{...m,juegosA,juegosB,done:true}:m);
     updateCat(activeCId,c=>({...c,americanoPartidos:newPartidos}));
-    await updateDoc(doc(db,"categorias",activeCId),{americanoPartidos:newPartidos});
+    await datos.actualizarCategoria(activeCId,{americanoPartidos:newPartidos});
   }
 
   async function otorgarPuntosAmericanoIndividual(){
@@ -568,10 +533,7 @@ export default function App() {
       });
     }
     setJugadores(nxt);updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    const batch=writeBatch(db);
-    [...cedulasModificadas].forEach(cedula=>batch.set(doc(db,"jugadores",cedula),nxt[cedula]));
-    batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
-    try{await batch.commit();alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
+    try{await datos.guardarPuntos(activeCId,[...cedulasModificadas].map(c=>[c,nxt[c]]));alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
     catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
   }
 
@@ -595,7 +557,7 @@ export default function App() {
       const last=idxs[M-1];for(let i=M-1;i>1;i--)idxs[i]=idxs[i-1];idxs[1]=last;
     }
     updateCat(activeCId,c=>({...c,americanoPartidos:partidos,americanoFixtureGenerado:true}));
-    await updateDoc(doc(db,"categorias",activeCId),{americanoPartidos:partidos,americanoFixtureGenerado:true});
+    await datos.actualizarCategoria(activeCId,{americanoPartidos:partidos,americanoFixtureGenerado:true});
   }
 
   async function otorgarPuntosAmericanoPareja(){
@@ -630,10 +592,7 @@ export default function App() {
       });
     }
     setJugadores(nxt);updateCat(activeCId,c=>({...c,pointsAwarded:true}));
-    const batch=writeBatch(db);
-    [...cedulasModificadas].forEach(cedula=>batch.set(doc(db,"jugadores",cedula),nxt[cedula]));
-    batch.update(doc(db,"categorias",activeCId),{pointsAwarded:true});
-    try{await batch.commit();alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
+    try{await datos.guardarPuntos(activeCId,[...cedulasModificadas].map(c=>[c,nxt[c]]));alert(ptsFallen>0?"Puntos guardados. "+ptsFallen+" jugador(es) perdieron pts de edicion anterior.":"Puntos guardados correctamente");}
     catch(err){console.error(err);alert("Error al guardar puntos: "+err.message);}
   }
 
@@ -641,7 +600,7 @@ export default function App() {
     try{
       const updated={...jugadores[cedula],categoria};
       setJugadores(prev=>({...prev,[cedula]:updated}));
-      await updateDoc(doc(db,"jugadores",cedula),{categoria:categoria||null});
+      await datos.actualizarJugador(cedula,{categoria:categoria||null});
     }catch(err){alert("Error al guardar categoria: "+err.message);}
   }
 
@@ -649,7 +608,7 @@ export default function App() {
     try{
       const updated={...jugadores[cedula],genero:genero||null};
       setJugadores(prev=>({...prev,[cedula]:updated}));
-      await updateDoc(doc(db,"jugadores",cedula),{genero:genero||null});
+      await datos.actualizarJugador(cedula,{genero:genero||null});
     }catch(err){alert("Error al guardar género: "+err.message);}
   }
 
@@ -657,7 +616,7 @@ export default function App() {
     const current=activeTorneo?.slotsBoqueados||[];
     const updated=current.includes(slotKey)?current.filter(s=>s!==slotKey):[...current,slotKey];
     setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,slotsBoqueados:updated}:t));
-    await updateDoc(doc(db,"torneos",activeTId),{slotsBoqueados:updated});
+    await datos.actualizarTorneo(activeTId,{slotsBoqueados:updated});
   }
 
   async function editarParejaCruce(matchId,{p1id:newP1id,p2id:newP2id}){
@@ -681,7 +640,7 @@ export default function App() {
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nk}));
     try{
-      await updateDoc(doc(db,"categorias",activeCId),{knockoutMatchesFlat:nk.flat()});
+      await datos.guardarLlave(activeCId,nk);
     }catch(err){
       console.error("Error guardando cruce:",err);
       alert("Error al guardar: "+err.message);
@@ -692,11 +651,11 @@ export default function App() {
   async function crearJugadorManual(cedula,nombre){
     const nuevo={cedula,nombre,totalPts:0,historial:[]};
     setJugadores(prev=>({...prev,[cedula]:nuevo}));
-    try{await setDoc(doc(db,"jugadores",cedula),nuevo);}
+    try{await datos.guardarJugador(cedula,nuevo);}
     catch(err){alert("Error al crear jugador: "+err.message);}
   }
 
-  async function eliminarJugador(cedula){try{await deleteDoc(doc(db,"jugadores",cedula));setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
+  async function eliminarJugador(cedula){try{await datos.eliminarJugador(cedula);setJugadores(prev=>{const n={...prev};delete n[cedula];return n;});}catch(err){alert("Error: "+err.message);}}
   async function eliminarEntradaHistorial(cedula,idx){
     try{
       const jug=jugadores[cedula];
@@ -709,7 +668,7 @@ export default function App() {
         historial:hist.filter((_,i)=>i!==idx)
       };
       setJugadores(prev=>({...prev,[cedula]:updated}));
-      await setDoc(doc(db,"jugadores",cedula),updated);
+      await datos.guardarJugador(cedula,updated);
     }catch(err){
       console.error("Error eliminando entrada historial:",err);
       alert("Error al eliminar: "+err.message);
@@ -731,7 +690,7 @@ export default function App() {
         historial:[...(jug.historial||[]),nuevaEntry]
       };
       setJugadores(prev=>({...prev,[cedula]:updated}));
-      await setDoc(doc(db,"jugadores",cedula),updated);
+      await datos.guardarJugador(cedula,updated);
     }catch(err){
       console.error("Error ajustando puntos:",err);
       alert("Error al ajustar puntos: "+err.message);
@@ -754,11 +713,8 @@ export default function App() {
     if(Object.keys(jugAfectados).length>0)setJugadores(prev=>({...prev,...jugAfectados}));
     setTorneos(p=>p.filter(x=>x.id!==tid));
     // Batch atómico: borra el torneo + actualiza todos los jugadores afectados
-    const batch=writeBatch(db);
-    batch.delete(doc(db,"torneos",tid));
-    Object.values(jugAfectados).forEach(jug=>batch.set(doc(db,"jugadores",jug.cedula),jug));
     try{
-      await batch.commit();
+      await datos.eliminarTorneoYAjustarPuntos(tid,Object.values(jugAfectados));
       const n=Object.keys(jugAfectados).length;
       if(n>0)alert("Torneo eliminado. Puntos ajustados para "+n+" jugador(es).");
     }catch(err){
