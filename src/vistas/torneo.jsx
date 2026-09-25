@@ -5,8 +5,9 @@ import { uid, COURTS, SLOT_DEFS, STAGE_PTS, STAGE_LABEL, AMERICANO_STAGE_PTS, CA
 import { calcZoneDistribution } from "../logica/programacion.js";
 import { calcStandings } from "../logica/resultados.js";
 import { getRoundNames, calcPairStages } from "../logica/llave.js";
+import { resumenDisponibilidad } from "../logica/calendario.js";
 
-export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin, jugadoresGlobal }) {
+export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin, jugadoresGlobal, modoCalendario="finde" }) {
   const empty={nombre:"",j1nombre:"",j1cedula:"",j2nombre:"",j2cedula:""};
   const [form,setForm]=useState(empty);const [showAdd,setShowAdd]=useState(true);
   if (!cat||!cat.parejas||!cat.grupos) return <div className="empty">Cargando datos de la categoria...</div>;
@@ -29,6 +30,7 @@ export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, is
   };
   const totalPagos=cat.parejas.reduce((acc,p)=>acc+(p.pagoJ1?1:0)+(p.pagoJ2?1:0),0);
   const formatSlots=(pair)=>{
+    if(modoCalendario==="largo")return <div className="col" style={{gap:2}}><span style={{fontSize:10,lineHeight:1.3}}>{resumenDisponibilidad(pair.disponibilidad)}</span>{pair.notasLibres&&<div style={{fontSize:10,color:"var(--muted)"}}>{pair.notasLibres}</div>}</div>;
     if(pair.sinProblemas!==false&&!pair.restriccionesSlots?.length)return <span className="restr-badge restr-ok">✓ Sin problemas</span>;
     const slots=pair.restriccionesSlots||[];if(!slots.length)return <span className="restr-badge restr-ok">✓ Sin problemas</span>;
     const byDay={};slots.forEach(s=>{const[dia,hora]=s.split("|");if(!byDay[dia])byDay[dia]=[];byDay[dia].push(hora);});
@@ -90,14 +92,15 @@ export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, is
   );
 }
 
-export function Fixture({ cat, onGenerate, isAdmin, onEditMatch }) {
+export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario="finde" }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   if (!cat.fixtureGenerado) return (
     <div><div className="sec-hdr"><div className="sec-title">Fixture</div></div>
       <div className="card" style={{textAlign:"center",padding:48}}>
         <div className="empty-ico">📅</div>
         <p className="mb16" style={{color:"var(--muted)"}}>{cat.parejas.length<3?`Necesitás al menos 3 parejas (tenés ${cat.parejas.length})`:`${cat.parejas.length} parejas · Zonas: ${calcZoneDistribution(cat.parejas.length).zonasDe3} de 3, ${calcZoneDistribution(cat.parejas.length).zonasDe4} de 4`}</p>
-        {cat.parejas.length>=3&&<button className="btn btn-primary" onClick={onGenerate} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>⚡ Generar Fixture</button>}
+        {modoCalendario==="largo"&&<p style={{color:"var(--accent2)",fontSize:13,maxWidth:460,margin:"0 auto 8px"}}>Torneo largo: el armado automático de zonas y horarios por fecha llega en la próxima etapa. Mientras tanto podés inscribir parejas, cargar su disponibilidad y el calendario del club.</p>}
+        {cat.parejas.length>=3&&modoCalendario!=="largo"&&<button className="btn btn-primary" onClick={onGenerate} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>⚡ Generar Fixture</button>}
       </div>
     </div>
   );
