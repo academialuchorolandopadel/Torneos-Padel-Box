@@ -1,6 +1,6 @@
 // Programación de partidos: armado de zonas y asignación de horarios/canchas.
 // Funciones puras: reciben datos y devuelven datos. No tocan Firebase ni React.
-import { COURTS, MIN_GAP, MIN_GAP_KO_SAME_DAY, MIN_GAP_KO_DIFF_DAY, SLOT_DEFS, ALL_SLOTS } from "./constantes.js";
+import { uid, COURTS, LETTERS, MIN_GAP, MIN_GAP_KO_SAME_DAY, MIN_GAP_KO_DIFF_DAY, SLOT_DEFS, ALL_SLOTS } from "./constantes.js";
 
 export function calcZoneDistribution(numPairs) {
   if (numPairs < 6) return { zonasDe3: Math.ceil(numPairs / 3), zonasDe4: 0 };
@@ -120,4 +120,54 @@ export function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas
   const scheduledMap=new Map();
   allKO.forEach(m=>scheduledMap.set(m.id,programar(m)));
   return knockoutRounds.map(round=>round.map(m=>scheduledMap.get(m.id)||m));
+}
+
+// ---- Armado de zonas ----
+// Reparte las parejas en zonas de 3 (y de 4 si hace falta), juntando las de
+// horarios más compatibles. Primero ubica a las parejas con menos horarios
+// disponibles, que son las más difíciles de acomodar.
+// criterios.disponibilidad(p): cuántos horarios tiene libres la pareja
+// criterios.compatibilidad(a, b): cuántos horarios comparten dos parejas
+// Por defecto usa la grilla de fin de semana (restricciones por slot).
+export function armarZonas(parejas, criterios = {}) {
+  const disponibilidad = criterios.disponibilidad || (p => getAvailableSlots(p).length);
+  const compatibilidad = criterios.compatibilidad || calcCompatibilityScore;
+  const dist = calcZoneDistribution(parejas.length);
+  const grupos = []; let li = 0;
+  for (let i = 0; i < dist.zonasDe3; i++) grupos.push({ id: uid(), nombre: `ZONA ${LETTERS[li++]}` });
+  for (let i = 0; i < dist.zonasDe4; i++) grupos.push({ id: uid(), nombre: `ZONA ${LETTERS[li++]}` });
+  const ap = parejas.map(p => ({ ...p, grupoId: null }));
+  const sorted = [...ap].sort((a, b) => disponibilidad(a) - disponibilidad(b));
+  const z3 = grupos.filter((_, i) => i < dist.zonasDe3), z4 = grupos.filter((_, i) => i >= dist.zonasDe3);
+  const assignToZones = (pl, zones, size) => {
+    const rem = pl.filter(p => p.grupoId === null);
+    for (const zone of zones) {
+      if (!rem.length) break; const seed = rem.shift(); seed.grupoId = zone.id;
+      const ws = rem.filter(p => p.grupoId === null).map(p => ({ p, score: compatibilidad(seed, p) })); ws.sort((a, b) => b.score - a.score);
+      for (let i = 0; i < size - 1 && i < ws.length; i++) { ws[i].p.grupoId = zone.id; const idx = rem.findIndex(x => x.id === ws[i].p.id); if (idx !== -1) rem.splice(idx, 1); }
+    }
+  };
+  assignToZones(sorted, z3, 3); assignToZones(sorted, z4, 4);
+  const asignadas = parejas.map(p => { const f = ap.find(a => a.id === p.id); return f ? { ...p, grupoId: f.grupoId } : p; });
+  return { grupos, parejas: asignadas };
+}
+
+// Partidos de zona: todos contra todos en zonas de 3; en zonas de 4, el
+// mini-playoff A y B (1ra ronda) y C y D (se completan con ganadores y perdedores).
+export function crearPartidosDeZona(grupos, parejas) {
+  const vacio = { done: false, winner: null, s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "" };
+  let code = 1; const raw = [];
+  grupos.forEach(g => {
+    const gIds = parejas.filter(p => p.grupoId === g.id).map(p => p.id);
+    if (gIds.length === 4) {
+      const gid = g.id;
+      raw.push({ id: uid(), type: "grupo", grupoId: gid, code: `Z${code++}`, p1id: gIds[0], p2id: gIds[1], ...vacio, zona4: true, zona4Tipo: "A", zona4GrupoId: gid });
+      raw.push({ id: uid(), type: "grupo", grupoId: gid, code: `Z${code++}`, p1id: gIds[2], p2id: gIds[3], ...vacio, zona4: true, zona4Tipo: "B", zona4GrupoId: gid });
+      raw.push({ id: uid(), type: "grupo", grupoId: gid, code: `Z${code++}`, p1id: null, p2id: null, ...vacio, zona4: true, zona4Tipo: "C", zona4GrupoId: gid });
+      raw.push({ id: uid(), type: "grupo", grupoId: gid, code: `Z${code++}`, p1id: null, p2id: null, ...vacio, zona4: true, zona4Tipo: "D", zona4GrupoId: gid });
+    } else {
+      roundRobin(gIds).forEach(([p1id, p2id]) => raw.push({ id: uid(), type: "grupo", grupoId: g.id, p1id, p2id, code: `Z${code++}`, ...vacio }));
+    }
+  });
+  return raw;
 }
