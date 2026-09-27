@@ -60,6 +60,12 @@ export function ResultModal({ match, cat, onSave, onClose, bestOf3=false, isAmer
   const needSet3=!isAmericano&&bestOf3&&set1w&&set2w&&set1w!==set2w;
   const getWinner=()=>{if(isAmericano)return n(form.s1p1)>n(form.s1p2)?match.p1id:n(form.s1p2)>n(form.s1p1)?match.p2id:null;let sa=0,sb=0;if(set1w===1)sa++;else if(set1w===2)sb++;if(set2w===1)sa++;else if(set2w===2)sb++;if(bestOf3){if(set3w===1)sa++;else if(set3w===2)sb++;}else{if(sa===sb){if(n(form.tbp1)>n(form.tbp2))sa++;else if(n(form.tbp2)>n(form.tbp1))sb++;}}return sa>sb?match.p1id:sb>sa?match.p2id:null;};
   const winner=getWinner(),p1=byId[match.p1id],p2=byId[match.p2id];
+  // W.O.: gana quien se presentó; cuenta como 6-0 6-0 (6-0 en americano)
+  const [woAbierto,setWoAbierto]=useState(false);
+  const woResultado=(ganaP1)=>{
+    const [g,p]=ganaP1?["6","0"]:["0","6"];
+    return {s1p1:g,s1p2:p,s2p1:isAmericano?"":g,s2p2:isAmericano?"":p,tbp1:"",tbp2:"",s3p1:"",s3p2:"",done:true,wo:true};
+  };
   const f=k=>({className:"inp score-inp",type:"number",min:0,max:99,value:form[k],onChange:e=>setForm(p=>({...p,[k]:e.target.value}))});
   return (
     <div className="overlay" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
@@ -81,10 +87,18 @@ export function ResultModal({ match, cat, onSave, onClose, bestOf3=false, isAmer
       </div>}
       {winner&&<div className="winner-banner mb12"><div className="winner-text">🏆 {byId[winner]?.nombre}</div></div>}
       <div className="row g8">
-        <button className="btn btn-primary f1" onClick={()=>winner&&onSave(match.id,{...form,done:true})} disabled={!winner}>Guardar</button>
-        {match.done&&<button className="btn btn-danger btn-sm" onClick={()=>onSave(match.id,{s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",s3p1:"",s3p2:"",done:false})}>Borrar</button>}
+        <button className="btn btn-primary f1" onClick={()=>winner&&onSave(match.id,{...form,done:true,...(match.wo?{wo:false}:{})})} disabled={!winner}>Guardar</button>
+        {match.done&&<button className="btn btn-danger btn-sm" onClick={()=>onSave(match.id,{s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",s3p1:"",s3p2:"",done:false,...(match.wo?{wo:false}:{})})}>Borrar</button>}
+        <button className="btn btn-ghost btn-sm" onClick={()=>setWoAbierto(v=>!v)}>W.O.</button>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
       </div>
+      {woAbierto&&<div className="alert alert-warn mt12" style={{marginBottom:0}}>
+        <div style={{marginBottom:8}}>¿Quién gana por W.O.? Cuenta como {isAmericano?"6-0":"6-0 6-0"}.</div>
+        <div className="row wrap g8">
+          <button className="btn btn-secondary btn-sm" onClick={()=>onSave(match.id,woResultado(true))}>Gana {p1?.nombre||"pareja 1"}</button>
+          <button className="btn btn-secondary btn-sm" onClick={()=>onSave(match.id,woResultado(false))}>Gana {p2?.nombre||"pareja 2"}</button>
+        </div>
+      </div>}
     </div></div>
   );
 }
