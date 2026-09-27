@@ -2,11 +2,12 @@
 // No habla con Firebase: todo lo que se lee o guarda pasa por datos/.
 import React, { useState, useEffect } from "react";
 import { uid, LETTERS, SLOT_DEFS } from "./logica/constantes.js";
-import { calcZoneDistribution, getAvailableSlots, calcCompatibilityScore, roundRobin, scheduleMatches, scheduleKnockoutMatches } from "./logica/programacion.js";
+import { calcZoneDistribution, scheduleMatches, scheduleKnockoutMatches, armarZonas, crearPartidosDeZona } from "./logica/programacion.js";
+import { programarLargo, tieneHorario, sinHorario, minutosAbsolutos, limitesLlave, listosSinHorario, pendientesReproponer } from "./logica/armado.js";
 import { calcMatchResult, calcClassified } from "./logica/resultados.js";
 import { buildDynamicBracket } from "./logica/llave.js";
 import { calcularAsignaciones, aplicarPuntos } from "./logica/puntos.js";
-import { fechaHoyISO } from "./logica/fechas.js";
+import { fechaHoyISO, horaActual } from "./logica/fechas.js";
 import { CSS } from "./estilos.js";
 import { PinModal, PlayerLoginModal, ResultModal, EditPairModal, EditMatchModal, EditKOPairModal } from "./vistas/modales.jsx";
 import { Inscripcion, Fixture, Resultados, Posiciones, LlaveFinal, AgendaView } from "./vistas/torneo.jsx";
@@ -14,7 +15,9 @@ import { JugadoresView, MiTorneo, ReglamentoView } from "./vistas/jugadores.jsx"
 import { InscripcionAmericanoIndividual, AmericanoIndividualView, AmericanoParejasView } from "./vistas/americano.jsx";
 import * as datos from "./datos/firestore.js";
 import { CalendarioClubView } from "./vistas/calendario.jsx";
-import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA } from "./logica/calendario.js";
+import { armarDirectorio } from "./logica/directorio.js";
+import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA, ventanasSemanales, compatibilidadSemanal, capacidadDia, sumarDias } from "./logica/calendario.js";
+import { EditMatchLargoModal } from "./vistas/largo.jsx";
 import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesionJugador, borrarSesionJugador } from "./datos/sesion.js";
 
 const TABS=[
@@ -169,9 +172,10 @@ export default function App() {
     const fixedKO=finalRounds.flat().filter(m=>!m.auto&&m.dia&&m.dia!=="?");
     const allExisting=[...getSlotsOcupados(activeCId),...fixedKO];
     const esAmericanoLlave=catData.modalidad&&catData.modalidad!=="estandar";
-    const rescheduled=esAmericanoLlave?finalRounds:scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
+    const rescheduled=(esAmericanoLlave||activeTorneo?.calendario==="largo")?finalRounds:scheduleKnockoutMatches(finalRounds,allExisting,catData.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:rescheduled}));
     await datos.guardarLlave(activeCId,rescheduled);
+    return rescheduled;
   }
 
   async function crearTorneo(){
@@ -216,7 +220,7 @@ export default function App() {
       const pw={...pair,grupoId:tg.id};const existing=c.parejas.filter(p=>p.grupoId===tg.id);const baseCode=c.partidos.length+1;
       const newRaw=existing.map((ep,i)=>({id:uid(),type:"grupo",grupoId:tg.id,p1id:pw.id,p2id:ep.id,code:`Z${baseCode+i}`,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:""}));
       const otherMatches=getAllOtherMatches(activeCId);const pairMap=Object.fromEntries([...c.parejas,pw].map(p=>[p.id,p]));
-      const sched=scheduleMatches(newRaw,[...c.partidos,...otherMatches],pairMap);const newPartidos=[...c.partidos,...sched];
+      const sched=activeTorneo?.calendario==="largo"?newRaw:scheduleMatches(newRaw,[...c.partidos,...otherMatches],pairMap);const newPartidos=[...c.partidos,...sched];
       updateCat(activeCId,()=>({...c,grupos:newGrupos,parejas:[...c.parejas,pw],partidos:newPartidos}));
       await guardarPareja(pw);await guardarCategoria({...c,grupos:newGrupos});await Promise.all(newPartidos.map(p=>guardarPartido(p)));
     }
@@ -248,46 +252,99 @@ export default function App() {
 
   async function generarFixture(){
     if(!activeCat||activeCat.parejas.length<3)return;
-    if(activeTorneo?.calendario==="largo")return; // el armado por fechas llega en la etapa 2
-    const pairs=activeCat.parejas;const dist=calcZoneDistribution(pairs.length);
-    const grupos=[];let li=0;
-    for(let i=0;i<dist.zonasDe3;i++)grupos.push({id:uid(),nombre:`ZONA ${LETTERS[li++]}`});
-    for(let i=0;i<dist.zonasDe4;i++)grupos.push({id:uid(),nombre:`ZONA ${LETTERS[li++]}`});
-    const ap=pairs.map(p=>({...p,grupoId:null}));
-    const pairMap=Object.fromEntries(ap.map(p=>[p.id,p]));
-    const sorted=[...ap].sort((a,b)=>getAvailableSlots(a).length-getAvailableSlots(b).length);
-    const z3=grupos.filter((_,i)=>i<dist.zonasDe3),z4=grupos.filter((_,i)=>i>=dist.zonasDe3);
-    const assignToZones=(pl,zones,size)=>{
-      const rem=pl.filter(p=>p.grupoId===null);
-      for(const zone of zones){if(!rem.length)break;const seed=rem.shift();seed.grupoId=zone.id;
-        const ws=rem.filter(p=>p.grupoId===null).map(p=>({p,score:calcCompatibilityScore(seed,p)}));ws.sort((a,b)=>b.score-a.score);
-        for(let i=0;i<size-1&&i<ws.length;i++){ws[i].p.grupoId=zone.id;const idx=rem.findIndex(x=>x.id===ws[i].p.id);if(idx!==-1)rem.splice(idx,1);}
-      }
-    };
-    assignToZones(sorted,z3,3);assignToZones(sorted,z4,4);
-    const assignedPairs=pairs.map(p=>{const f=ap.find(a=>a.id===p.id);return f?{...p,grupoId:f.grupoId}:p;});
-    let code=1;const raw=[];
-    grupos.forEach(g=>{
-      const gIds=assignedPairs.filter(p=>p.grupoId===g.id).map(p=>p.id);
-      if(gIds.length===4){const gid=g.id;
-        raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:gIds[0],p2id:gIds[1],done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"A",zona4GrupoId:gid});
-        raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:gIds[2],p2id:gIds[3],done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"B",zona4GrupoId:gid});
-        raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:null,p2id:null,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"C",zona4GrupoId:gid});
-        raw.push({id:uid(),type:"grupo",grupoId:gid,code:`Z${code++}`,p1id:null,p2id:null,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:"",zona4:true,zona4Tipo:"D",zona4GrupoId:gid});
-      }else{
-        roundRobin(gIds).forEach(([p1id,p2id])=>raw.push({id:uid(),type:"grupo",grupoId:g.id,p1id,p2id,code:`Z${code++}`,done:false,winner:null,s1p1:"",s1p2:"",s2p1:"",s2p2:"",tbp1:"",tbp2:""}));
-      }
-    });
-    const esAmericano=activeCat.modalidad&&activeCat.modalidad!=="estandar";
-    const bloqueados=(activeTorneo?.slotsBoqueados||[]).map(k=>{const[dia,hora,cancha]=k.split("|");const s=SLOT_DEFS.find(x=>x.dia===dia&&x.hora===hora);return s?{dia,hora,cancha,mins:s.mins,p1id:"__bloq__",p2id:"__bloq__"}:null;}).filter(Boolean);
-    const om=[...getAllOtherMatches(activeCId),...bloqueados];
-    const sched=esAmericano?raw.filter(m=>m.p1id&&m.p2id):scheduleMatches(raw.filter(m=>m.p1id&&m.p2id),om,pairMap);
-    const partidos=[...sched,...raw.filter(m=>!m.p1id||!m.p2id)];
+    const largo=activeTorneo?.calendario==="largo";
+    // Zonas: en torneo largo se juntan parejas por disponibilidad semanal;
+    // en fin de semana, por la grilla de slots (criterio por defecto)
+    const criterios=largo?{disponibilidad:p=>ventanasSemanales(p.disponibilidad).size,compatibilidad:(a,b)=>compatibilidadSemanal(a.disponibilidad,b.disponibilidad)}:undefined;
+    const {grupos,parejas:assignedPairs}=armarZonas(activeCat.parejas,criterios);
+    const pairMap=Object.fromEntries(assignedPairs.map(p=>[p.id,p]));
+    const raw=crearPartidosDeZona(grupos,assignedPairs);
+    let partidos;
+    if(largo){
+      const listos=new Set(raw.filter(m=>m.p1id&&m.p2id).map(m=>m.id));
+      partidos=programarEnOrden({id:activeCId,parejas:assignedPairs,partidos:raw,knockoutRounds:[]},listos).cat.partidos;
+    }else{
+      const esAmericano=activeCat.modalidad&&activeCat.modalidad!=="estandar";
+      const bloqueados=(activeTorneo?.slotsBoqueados||[]).map(k=>{const[dia,hora,cancha]=k.split("|");const s=SLOT_DEFS.find(x=>x.dia===dia&&x.hora===hora);return s?{dia,hora,cancha,mins:s.mins,p1id:"__bloq__",p2id:"__bloq__"}:null;}).filter(Boolean);
+      const om=[...getAllOtherMatches(activeCId),...bloqueados];
+      const sched=esAmericano?raw.filter(m=>m.p1id&&m.p2id):scheduleMatches(raw.filter(m=>m.p1id&&m.p2id),om,pairMap);
+      partidos=[...sched,...raw.filter(m=>!m.p1id||!m.p2id)];
+    }
     const updatedCat={...activeCat,parejas:assignedPairs,grupos,partidos,fixtureGenerado:true,knockoutGenerated:false,knockoutRounds:[]};
     updateCat(activeCId,()=>updatedCat);
     await guardarCategoria({...updatedCat,id:activeCId});
     await Promise.all(assignedPairs.map(p=>guardarPareja(p)));
     await Promise.all(partidos.map(m=>guardarPartido(m)));
+    if(largo)avisarSinLugar(partidos);
+  }
+
+  // ===== Torneo largo =====
+  // Lo que ya ocupa canchas: las demás categorías de torneos largos (del estado) y
+  // la categoría que se está programando (tal como viene, con sus cambios recientes).
+  // También arma el mapa de parejas, para conocer disponibilidades y jugadores.
+  function contextoLargo(catActual){
+    const otras=torneos.filter(t=>t.calendario==="largo").flatMap(t=>(t.categorias||[]).filter(c=>c.id!==catActual.id));
+    const parejas={};
+    otras.forEach(c=>(c.parejas||[]).forEach(p=>{parejas[p.id]=p;}));
+    (catActual.parejas||[]).forEach(p=>{parejas[p.id]=p;});
+    const ocupados=[...otras,catActual].flatMap(c=>[...(c.partidos||[]),...((c.knockoutRounds||[]).flat())]).filter(tieneHorario);
+    return {parejas,ocupados};
+  }
+  const configLargo=()=>({duracion:activeTorneo?.duracionPartido||DURACION_PARTIDO,maxSemana:activeTorneo?.maxPartidosSemana||MAX_PARTIDOS_SEMANA,
+    inicioTorneo:activeTorneo?.fecha||fechaHoyISO(),ahoraMins:minutosAbsolutos(fechaHoyISO(),horaActual())});
+  // (Re)ubica partidos: primero los de zona y después la llave ronda por ronda,
+  // así cada cruce ya conoce las fechas de los partidos anteriores de sus parejas.
+  function programarEnOrden(catData,pendIds){
+    let partidos=catData.partidos.map(m=>pendIds.has(m.id)?sinHorario(m):m);
+    let rondas=(catData.knockoutRounds||[]).map(r=>r.map(m=>pendIds.has(m.id)?sinHorario(m):m));
+    const programados=[];
+    const correr=(lista,limites)=>{
+      const ctx=contextoLargo({...catData,partidos,knockoutRounds:rondas});const cfg=configLargo();
+      const prog=programarLargo({pendientes:lista,fijos:ctx.ocupados,parejas:ctx.parejas,calendarioClub,inicioTorneo:cfg.inicioTorneo,
+        hoy:fechaHoyISO(),duracion:cfg.duracion,maxSemana:cfg.maxSemana,ahoraMins:cfg.ahoraMins,limites});
+      programados.push(...prog);return new Map(prog.map(m=>[m.id,m]));
+    };
+    const zona=partidos.filter(m=>pendIds.has(m.id));
+    if(zona.length){const por=correr(zona,{});partidos=partidos.map(m=>por.get(m.id)||m);}
+    for(let ri=0;ri<rondas.length;ri++){
+      const lista=rondas[ri].filter(m=>pendIds.has(m.id));
+      if(!lista.length)continue;
+      const por=correr(lista,limitesLlave(partidos,rondas));
+      rondas=rondas.map(r=>r.map(m=>por.get(m.id)||m));
+    }
+    return {cat:{...catData,partidos,knockoutRounds:rondas},programados};
+  }
+  // Guarda lo programado (zona en su colección, llave dentro de la categoría)
+  async function guardarProgramacion(catNueva,programados){
+    updateCat(catNueva.id,c=>({...c,partidos:catNueva.partidos,knockoutRounds:catNueva.knockoutRounds}));
+    const idsZona=new Set(catNueva.partidos.map(m=>m.id));
+    const zona=catNueva.partidos.filter(m=>programados.some(p=>p.id===m.id));
+    const hayLlave=programados.some(m=>!idsZona.has(m.id));
+    try{
+      await Promise.all(zona.map(m=>guardarPartido(m)));
+      if(hayLlave)await datos.guardarLlave(catNueva.id,catNueva.knockoutRounds);
+    }catch(err){console.error("Error guardando cronograma:",err);alert("Error al guardar el cronograma: "+err.message);return;}
+    avisarSinLugar(programados);
+  }
+  function avisarSinLugar(partidos){
+    const n=partidos.filter(m=>m.sinLugar).length;
+    if(n)alert(n+" partido(s) quedaron sin horario. Revisa el calendario del club o la disponibilidad de las parejas, y usa Re-proponer pendientes.");
+  }
+  // Programa solo lo que quedó listo y sin horario: C y D cuando terminan A y B,
+  // y cada cruce de llave cuando se conocen sus dos parejas.
+  async function programarListosLargo(catData){
+    const pend=listosSinHorario(catData.partidos,catData.knockoutRounds);
+    if(!pend.length)return;
+    const {cat,programados}=programarEnOrden(catData,new Set(pend.map(m=>m.id)));
+    await guardarProgramacion(cat,programados);
+  }
+  // Reacomoda lo no jugado ni fijado (salvo lo que se juega en las próximas 24 horas)
+  async function reproponerLargo(){
+    if(!activeCat)return;
+    const pend=pendientesReproponer(activeCat.partidos,activeCat.knockoutRounds,configLargo().ahoraMins);
+    if(!pend.length)return;
+    const {cat,programados}=programarEnOrden(activeCat,new Set(pend.map(m=>m.id)));
+    await guardarProgramacion(cat,programados);
   }
 
   // Helper unificado: todos los partidos que ocupan slots, EXCLUYENDO la llave
@@ -313,10 +370,11 @@ export default function App() {
     const newRounds=buildDynamicBracket(classified,bracketSize);
     const allExisting=getSlotsOcupados(activeCId);
     const esAmericanoLlave=activeCat.modalidad&&activeCat.modalidad!=="estandar";
-    const scheduled=esAmericanoLlave?newRounds:scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
+    const scheduled=(esAmericanoLlave||activeTorneo?.calendario==="largo")?newRounds:scheduleKnockoutMatches(newRounds,allExisting,activeCat.parejas);
     updateCat(activeCId,c=>({...c,knockoutRounds:scheduled,knockoutGenerated:true}));
     try{
       await datos.guardarLlave(activeCId,scheduled,true);
+      if(activeTorneo?.calendario==="largo")await programarListosLargo({...activeCat,knockoutRounds:scheduled,knockoutGenerated:true});
     }catch(err){
       console.error("Error guardando llave:",err);
       alert("Error al guardar la llave: "+err.message);
@@ -359,14 +417,18 @@ export default function App() {
     }
     // Recalcular llave provisional — fallo no-fatal: el resultado ya está
     // guardado en Firestore; la llave se actualizará al próximo 🔄.
+    let rondasNuevas=cat.knockoutRounds;
     if(cat.knockoutGenerated){
       try{
-        await recalcularLlaveProvisoria({...cat,partidos:newPartidos});
+        rondasNuevas=(await recalcularLlaveProvisoria({...cat,partidos:newPartidos}))||cat.knockoutRounds;
       }catch(err){
         console.error("Error actualizando llave provisional:",err);
       }
     }
+    // Torneo largo: C y D (zonas de 4) o cruces de llave que quedaron listos se programan solos
+    if(activeTorneo?.calendario==="largo")await programarListosLargo({...cat,partidos:newPartidos,knockoutRounds:rondasNuevas});
   }
+
 
   async function guardarResultadoKnockout(matchId,result){
     const fm=activeCat.knockoutRounds.flat().find(m=>m.id===matchId);if(!fm)return;
@@ -378,7 +440,7 @@ export default function App() {
     if(winner){
       nr.forEach((round,ri)=>{round.forEach(m=>{if(!m.prevIds?.length)return;if(m.prevIds[0]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p1id:winner}:nm);if(m.prevIds[1]===matchId)nr[ri]=nr[ri].map(nm=>nm.id===m.id?{...nm,p2id:winner}:nm);});});
       const allEx=getSlotsOcupados(activeCId);
-      nr=scheduleKnockoutMatches(nr,allEx,activeCat.parejas);
+      if(activeTorneo?.calendario!=="largo")nr=scheduleKnockoutMatches(nr,allEx,activeCat.parejas);
     }else if(prevWinner){
       // Despropagar en cascada: borrar el resultado invalida los cruces siguientes
       const queue=[{mid:matchId,wid:prevWinner}];
@@ -399,6 +461,7 @@ export default function App() {
       }
     }
     updateCat(activeCId,c=>({...c,knockoutRounds:nr}));setModal(null);await guardarKnockout(nr);
+    if(activeTorneo?.calendario==="largo")await programarListosLargo({...activeCat,knockoutRounds:nr});
   }
 
   // Una sola función para todas las modalidades: la regla vive en logica/puntos.js
@@ -757,8 +820,17 @@ export default function App() {
     {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
 
+  // Capacidad de la semana 1 contra lo que necesita la categoría (aviso previo al armado)
+  const infoLargo=(()=>{
+    if(activeTorneo?.calendario!=="largo"||!activeCat)return null;
+    const hoy=fechaHoyISO(),ini=activeTorneo.fecha||hoy,desde=ini>hoy?ini:hoy;
+    const dur=activeTorneo.duracionPartido||DURACION_PARTIDO;
+    const capacidad=Array.from({length:7},(_,i)=>capacidadDia(calendarioClub[sumarDias(desde,i)],dur)).reduce((a,b)=>a+b,0);
+    const d=calcZoneDistribution(activeCat.parejas.length);
+    return {inicio:desde,capacidad,necesarios:d.zonasDe3*3+d.zonasDe4*2};
+  })();
   const isRoundRobin=["americano_individual","americano_pareja"].includes(activeCat?.modalidad);
-  const tabsVisibles=TABS.filter(tab=>{if(tab.adminOnly)return isAdmin;if(tab.playerOnly)return !isAdmin&&isPlayer;if(tab.showRR)return isRoundRobin;if(tab.hideRR)return !isRoundRobin;return true;});
+  const tabsVisibles=TABS.filter(tab=>{if(tab.id==="agenda"&&activeTorneo?.calendario==="largo")return false;if(tab.adminOnly)return isAdmin;if(tab.playerOnly)return !isAdmin&&isPlayer;if(tab.showRR)return isRoundRobin;if(tab.hideRR)return !isRoundRobin;return true;});
   return(<><style>{CSS}</style><div className="app">
     <header className="hdr">
       <button className="btn btn-ghost btn-sm" onClick={()=>setActiveTId(null)}>← Torneos</button>
@@ -789,15 +861,15 @@ export default function App() {
       </div>
       {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
-          {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"}/>}
+          {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} directorio={armarDirectorio(jugadores,torneos)}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntos} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntos} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
-          {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
+          {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} onReproponer={reproponerLargo} infoLargo={infoLargo} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
-          {subview==="llave"&&<LlaveFinal cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
+          {subview==="llave"&&<LlaveFinal modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
           {subview==="agenda"&&isAdmin&&<AgendaView torneo={activeTorneo} allPartidos={[...allMatches,...(activeTorneo?.categorias?.flatMap(c=>c.knockoutRounds?.flat()||[])||[])]} isAdmin={isAdmin} onEditMatch={m=>setModal({type:"editMatch",match:m})} onToggleBloqueo={toggleBloqueoSlot}/>}
         </>
       )}
@@ -822,6 +894,10 @@ export default function App() {
       const matchCat=activeTorneo?.categorias?.find(c=>c.partidos?.some(p=>p.id===modal.match.id)||c.knockoutRounds?.flat()?.some(p=>p.id===modal.match.id))||activeCat;
       if(!matchCat)return null;
       const allCatPartidos=(activeTorneo?.categorias||[]).flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])]);
+      if(activeTorneo?.calendario==="largo"){
+        const ctx=contextoLargo(matchCat);
+        return <EditMatchLargoModal match={modal.match} cat={matchCat} ctx={{...ctx,...configLargo(),calendarioClub,limites:limitesLlave(matchCat.partidos,matchCat.knockoutRounds)}} onSave={editarPartido} onClose={()=>setModal(null)}/>;
+      }
       return <EditMatchModal match={modal.match} cat={matchCat} allPartidos={allCatPartidos} onSave={editarPartido} onClose={()=>setModal(null)}/>;
     })()}
     {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
