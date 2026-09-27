@@ -18,3 +18,9 @@ export function fechaHoyISO(){
   const dos = (x) => String(x).padStart(2, "0");
   return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
 }
+
+// Hora local actual en formato "19:30"
+export function horaActual(){
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
