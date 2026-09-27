@@ -16,6 +16,7 @@ export const HORA_APERTURA = "07:00";
 export const HORA_CIERRE = "24:00";
 export const DURACION_PARTIDO = 90;  // minutos, valor por defecto del torneo largo
 export const MAX_PARTIDOS_SEMANA = 2; // por pareja, valor por defecto del torneo largo
+export const ANTICIPACION_MIN_HORAS = 24; // aviso mínimo para programar un partido
 
 export const NOMBRES_DIA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 export const ORDEN_SEMANA = [1, 2, 3, 4, 5, 6, 0]; // la semana arranca el lunes
@@ -76,8 +77,13 @@ export const DISPONIBILIDAD_LIBRE = { modo: "libre", dias: {} };
 //  - "solo":  el partido tiene que caer ENTERO dentro de alguno de sus rangos de ese día
 //  - "no":    el partido no puede tocar ninguno de sus rangos de ese día
 export function parejaPuede(disp, fechaISO, desde, hasta) {
+  return parejaPuedeEnDia(disp, diaDeSemana(fechaISO), desde, hasta);
+}
+
+// Igual que parejaPuede, pero con el día de la semana (0 domingo ... 6 sábado)
+export function parejaPuedeEnDia(disp, diaSemana, desde, hasta) {
   if (!disp || !disp.modo || disp.modo === "libre") return true;
-  const rangos = normalizarRangos(disp.dias?.[String(diaDeSemana(fechaISO))] || []);
+  const rangos = normalizarRangos(disp.dias?.[String(diaSemana)] || []);
   const a = aMin(desde), b = aMin(hasta);
   if (disp.modo === "solo") return rangos.some(r => aMin(r.desde) <= a && aMin(r.hasta) >= b);
   return !rangos.some(r => aMin(r.desde) < b && aMin(r.hasta) > a);
@@ -92,4 +98,24 @@ export function resumenDisponibilidad(disp) {
     .map(([d, rs]) => `${NOMBRES_DIA[d].slice(0, 3)} ${rs.map(r => `${r.desde}-${r.hasta}`).join(", ")}`);
   if (!partes.length) return disp.modo === "solo" ? "Solo: sin días cargados" : "Sin restricciones";
   return (disp.modo === "solo" ? "Solo: " : "No puede: ") + partes.join(" · ");
+}
+
+// ---- Compatibilidad entre parejas (para armar zonas) ----
+// Horarios de una semana tipo en los que la pareja podría jugar un partido
+// completo: "día|inicio", con inicios cada media hora dentro del horario del club.
+export function ventanasSemanales(disp, duracion = DURACION_PARTIDO) {
+  const out = new Set();
+  for (let d = 0; d < 7; d++) {
+    for (let m = aMin(HORA_APERTURA); m + duracion <= aMin(HORA_CIERRE); m += PASO_MIN) {
+      if (parejaPuedeEnDia(disp, d, aHora(m), aHora(m + duracion))) out.add(d + "|" + m);
+    }
+  }
+  return out;
+}
+
+// Cuántos horarios de partido tienen en común dos parejas en una semana tipo
+export function compatibilidadSemanal(dispA, dispB, duracion = DURACION_PARTIDO) {
+  const a = ventanasSemanales(dispA, duracion), b = ventanasSemanales(dispB, duracion);
+  let n = 0; a.forEach(x => { if (b.has(x)) n++; });
+  return n;
 }
