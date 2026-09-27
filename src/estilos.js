@@ -152,5 +152,9 @@ export const CSS = `
   .mini-team .tbd{color:var(--muted);font-style:italic}
   .zona-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:500;margin:3px}
   .zona-pill.done{background:rgba(61,255,160,.08);border:1px solid rgba(61,255,160,.3);color:var(--accent)}
+  .sugerencias{position:absolute;top:100%;left:0;right:0;z-index:60;margin-top:4px;background:var(--bg2);border:1px solid var(--accent);border-radius:9px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .sug-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:10px 12px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;text-align:left;cursor:pointer}
+  .sug-item:last-child{border-bottom:none}
+  .sug-item:hover{background:rgba(61,255,160,.08)}
   .zona-pill.pending{background:rgba(255,203,71,.06);border:1px solid rgba(255,203,71,.3);color:var(--gold)}
 `;
