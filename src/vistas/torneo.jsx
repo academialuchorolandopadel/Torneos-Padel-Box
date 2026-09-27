@@ -1,33 +1,47 @@
 // Pantallas de un torneo por zonas: inscripción, fixture, resultados,
 // posiciones, llave final y agenda de canchas.
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { uid, COURTS, SLOT_DEFS, STAGE_PTS, STAGE_LABEL, AMERICANO_STAGE_PTS, CATEGORY_COLORS } from "../logica/constantes.js";
 import { calcZoneDistribution } from "../logica/programacion.js";
 import { calcStandings } from "../logica/resultados.js";
 import { getRoundNames, calcPairStages } from "../logica/llave.js";
 import { resumenDisponibilidad } from "../logica/calendario.js";
+import { nombreParejaAuto } from "../logica/directorio.js";
+import { CampoJugador } from "./buscador.jsx";
+import { CronogramaLargo } from "./largo.jsx";
+import { formatearFecha } from "../logica/fechas.js";
 
-export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin, jugadoresGlobal, modoCalendario="finde" }) {
+export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, isAdmin, jugadoresGlobal, modoCalendario="finde", directorio=[] }) {
   const empty={nombre:"",j1nombre:"",j1cedula:"",j2nombre:"",j2cedula:""};
   const [form,setForm]=useState(empty);const [showAdd,setShowAdd]=useState(true);
+  const nombreAutoRef=useRef("");
   if (!cat||!cat.parejas||!cat.grupos) return <div className="empty">Cargando datos de la categoria...</div>;
   const gName=Object.fromEntries(cat.grupos.map(g=>[g.id,g.nombre]));
   function handleAdd(){
     if(!form.nombre.trim()||!form.j1nombre.trim()||!form.j2nombre.trim())return;
     onAdd({id:uid(),nombre:form.nombre.trim(),j1nombre:form.j1nombre.trim(),j1cedula:form.j1cedula.trim(),j2nombre:form.j2nombre.trim(),j2cedula:form.j2cedula.trim(),j1:form.j1nombre.trim(),j2:form.j2nombre.trim(),grupoId:null,pagoJ1:false,pagoJ2:false,sinProblemas:true,restriccionesSlots:[],notasLibres:""});
-    setForm(empty);
+    setForm(empty);nombreAutoRef.current="";
   }
   const s=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
-  // Autocompletar nombre desde la base de jugadores al ingresar la cedula
+  // Aplica cambios al formulario. Si están los dos nombres, propone el nombre de
+  // la pareja con los apellidos, salvo que lo hayas escrito a mano.
+  const actualizar=(cambios)=>{
+    const n={...form,...cambios};
+    const auto=nombreParejaAuto(n.j1nombre,n.j2nombre);
+    if(auto&&(form.nombre===""||form.nombre===nombreAutoRef.current)){n.nombre=auto;nombreAutoRef.current=auto;}
+    setForm(n);
+  };
+  const sNombre=k=>v=>actualizar({[k]:v});
+  const elegir=(nomKey,cedKey)=>j=>actualizar({[nomKey]:j.nombre,[cedKey]:j.cedula||""});
+  // Autocompletar nombre al ingresar una cédula conocida (ranking o torneos anteriores)
   const sCed=(cedKey,nomKey)=>e=>{
     const v=e.target.value;
-    setForm(p=>{
-      const n={...p,[cedKey]:v};
-      const j=jugadoresGlobal?.[v.trim()];
-      if(j&&!p[nomKey].trim())n[nomKey]=j.nombre;
-      return n;
-    });
+    const cambios={[cedKey]:v};
+    const j=directorio.find(x=>x.cedula&&x.cedula===v.trim())||(jugadoresGlobal?.[v.trim()]?{nombre:jugadoresGlobal[v.trim()].nombre}:null);
+    if(j&&!form[nomKey].trim())cambios[nomKey]=j.nombre;
+    actualizar(cambios);
   };
+  const yaInscriptos=new Set(cat.parejas.flatMap(p=>[p.j1cedula,p.j2cedula]).filter(Boolean));
   const totalPagos=cat.parejas.reduce((acc,p)=>acc+(p.pagoJ1?1:0)+(p.pagoJ2?1:0),0);
   const formatSlots=(pair)=>{
     if(modoCalendario==="largo")return <div className="col" style={{gap:2}}><span style={{fontSize:10,lineHeight:1.3}}>{resumenDisponibilidad(pair.disponibilidad)}</span>{pair.notasLibres&&<div style={{fontSize:10,color:"var(--muted)"}}>{pair.notasLibres}</div>}</div>;
@@ -50,11 +64,11 @@ export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, is
       {showAdd?(
         <div className="card mb16">
           <div className="row just-between mb12"><div className="card-title" style={{margin:0}}>Agregar Pareja</div>{cat.fixtureGenerado&&<button className="icon-btn" onClick={()=>setShowAdd(false)} disabled={!isAdmin}>✕</button>}</div>
-          <div className="col f1 mb12"><label className="lbl">Nombre pareja</label><input className="inp" placeholder="González / Martínez" value={form.nombre} onChange={s("nombre")}/></div>
+          <div className="col f1 mb12"><label className="lbl">Nombre pareja</label><input className="inp" placeholder="Se completa con los apellidos" value={form.nombre} onChange={s("nombre")}/></div>
           <div className="grid2 mb12">
-            <div className="col"><label className="lbl">J1 — Nombre</label><input className="inp" value={form.j1nombre} onChange={s("j1nombre")}/></div>
+            <div className="col"><label className="lbl">J1 — Nombre</label><CampoJugador valor={form.j1nombre} cedulaActual={form.j1cedula} onCambiar={sNombre("j1nombre")} onElegir={elegir("j1nombre","j1cedula")} directorio={directorio} yaInscriptos={yaInscriptos}/></div>
             <div className="col"><label className="lbl">J1 — Cédula</label><input className="inp" value={form.j1cedula} onChange={sCed("j1cedula","j1nombre")} placeholder="1234567"/></div>
-            <div className="col"><label className="lbl">J2 — Nombre</label><input className="inp" value={form.j2nombre} onChange={s("j2nombre")}/></div>
+            <div className="col"><label className="lbl">J2 — Nombre</label><CampoJugador valor={form.j2nombre} cedulaActual={form.j2cedula} onCambiar={sNombre("j2nombre")} onElegir={elegir("j2nombre","j2cedula")} directorio={directorio} yaInscriptos={yaInscriptos}/></div>
             <div className="col"><label className="lbl">J2 — Cédula</label><input className="inp" value={form.j2cedula} onChange={sCed("j2cedula","j2nombre")} placeholder="7654321" onKeyDown={e=>e.key==="Enter"&&handleAdd()}/></div>
           </div>
           <button className="btn btn-primary" onClick={handleAdd} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>+ Agregar pareja</button>
@@ -92,15 +106,18 @@ export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, is
   );
 }
 
-export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario="finde" }) {
+export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario="finde", onReproponer, infoLargo }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   if (!cat.fixtureGenerado) return (
     <div><div className="sec-hdr"><div className="sec-title">Fixture</div></div>
       <div className="card" style={{textAlign:"center",padding:48}}>
         <div className="empty-ico">📅</div>
         <p className="mb16" style={{color:"var(--muted)"}}>{cat.parejas.length<3?`Necesitás al menos 3 parejas (tenés ${cat.parejas.length})`:`${cat.parejas.length} parejas · Zonas: ${calcZoneDistribution(cat.parejas.length).zonasDe3} de 3, ${calcZoneDistribution(cat.parejas.length).zonasDe4} de 4`}</p>
-        {modoCalendario==="largo"&&<p style={{color:"var(--accent2)",fontSize:13,maxWidth:460,margin:"0 auto 8px"}}>Torneo largo: el armado automático de zonas y horarios por fecha llega en la próxima etapa. Mientras tanto podés inscribir parejas, cargar su disponibilidad y el calendario del club.</p>}
-        {cat.parejas.length>=3&&modoCalendario!=="largo"&&<button className="btn btn-primary" onClick={onGenerate} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>⚡ Generar Fixture</button>}
+        {modoCalendario==="largo"&&infoLargo&&cat.parejas.length>=3&&<div style={{fontSize:13,maxWidth:480,margin:"0 auto 16px",color:"var(--accent2)"}}>
+          Semana 1 desde el {formatearFecha(infoLargo.inicio)}: el calendario del club tiene lugar para <b>{infoLargo.capacidad}</b> partidos y esta categoría necesita <b>{infoLargo.necesarios}</b> para la primera fecha de zonas.
+          {infoLargo.capacidad<infoLargo.necesarios&&<div style={{color:"var(--gold)",marginTop:6}}>⚠️ No alcanza: cargá más turnos libres en 📆 Calendario, o los que no entren se pasan a la semana siguiente.</div>}
+        </div>}
+        {cat.parejas.length>=3&&<button className="btn btn-primary" onClick={onGenerate} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>{modoCalendario==="largo"?"⚡ Armar torneo largo":"⚡ Generar Fixture"}</button>}
       </div>
     </div>
   );
@@ -140,7 +157,8 @@ export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario=
           );
         })}
       </div>
-      {!cat.modalidad?.startsWith("americano")&&<div className="card"><div className="card-title">Cronograma por Cancha</div>
+      {modoCalendario==="largo"&&<CronogramaLargo cat={cat} isAdmin={isAdmin} onEditMatch={onEditMatch} onReproponer={onReproponer}/>}
+      {modoCalendario!=="largo"&&!cat.modalidad?.startsWith("americano")&&<div className="card"><div className="card-title">Cronograma por Cancha</div>
         <div className="sched-grid">
           {COURTS.map(court=>(
             <div key={court}>
@@ -191,9 +209,9 @@ export function Resultados({ cat, onOpen, isAdmin, onEditMatch }) {
                     <tr key={m.id}>
                       <td><span className="slot-code">{m.code}</span></td>
                       <td className={w===1?"em":""} style={w===1?{color:"var(--accent)",fontWeight:700}:{}}>{pend?"Por definir":(p1?.nombre||"?")}</td>
-                      <td>{m.done?<span><span className="res-set">{m.s1p1}-{m.s1p2}</span><span className="res-set">{m.s2p1}-{m.s2p2}</span>{m.tbp1!==""&&m.tbp2!==""&&<span className="res-set" style={{color:"var(--gold)"}}>TB:{m.tbp1}-{m.tbp2}</span>}</span>:<span style={{color:"var(--muted)",fontSize:12}}>Pendiente</span>}</td>
+                      <td>{m.done?<span>{m.wo&&<span className="badge by" style={{marginRight:4}}>W.O.</span>}<span className="res-set">{m.s1p1}-{m.s1p2}</span><span className="res-set">{m.s2p1}-{m.s2p2}</span>{m.tbp1!==""&&m.tbp2!==""&&<span className="res-set" style={{color:"var(--gold)"}}>TB:{m.tbp1}-{m.tbp2}</span>}</span>:<span style={{color:"var(--muted)",fontSize:12}}>Pendiente</span>}</td>
                       <td className={w===2?"em":""} style={w===2?{color:"var(--accent)",fontWeight:700}:{}}>{pend?"Por definir":(p2?.nombre||"?")}</td>
-                      {!cat.modalidad?.startsWith("americano")&&<td style={{fontSize:11,color:"var(--muted)"}}>{m.dia} {m.hora} · {m.cancha}</td>}
+                      {!cat.modalidad?.startsWith("americano")&&<td style={{fontSize:11,color:"var(--muted)"}}>{m.dia?`${m.dia} ${m.hora} · ${m.cancha}`:"Sin horario"}</td>}
                       {isAdmin&&<td><button className="btn btn-ghost btn-xs" onClick={()=>onEditMatch(m)}>⚙️</button></td>}
                       {isAdmin&&<td><button className="btn btn-secondary btn-sm" onClick={()=>onOpen(m)} disabled={pend} style={{cursor:pend?'not-allowed':'pointer'}}>{m.done?"✏️":(pend?"⏳":"+ Resultado")}</button></td>}
                     </tr>
@@ -256,7 +274,7 @@ export function Posiciones({ cat }) {
   );
 }
 
-export function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch, onEditKOPair }) {
+export function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch, onEditKOPair, modoCalendario="finde" }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   const zonaStatus=cat.fixtureGenerado?cat.grupos.map(g=>{
     const partidos=cat.partidos.filter(m=>m.grupoId===g.id&&m.p1id&&m.p2id);
@@ -347,6 +365,7 @@ export function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoi
                           {m.done&&!m.auto&&<span className="br-score">{isAmericano?m.s1p2:m.s1p2+" "+m.s2p2+(m.s3p2!=null&&m.s3p2!==""?" "+m.s3p2:"")}</span>}
                         </div>
                         {m.dia&&m.hora&&m.cancha&&!m.auto&&<div className="br-schedule">{m.dia} {m.hora} · {m.cancha}{isAdmin&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}{isAdmin&&!m.done&&<button className="btn btn-ghost btn-xs" style={{marginLeft:4}} onClick={e=>{e.stopPropagation();onEditKOPair&&onEditKOPair(m);}}>👥</button>}</div>}
+                        {modoCalendario==="largo"&&!m.dia&&!m.auto&&!m.done&&m.p1id&&m.p2id&&<div className="br-schedule" style={{color:"var(--gold)"}}>{m.p1provisorio||m.p2provisorio?"Sin horario hasta cerrar las zonas":"Sin horario"}{isAdmin&&!m.p1provisorio&&!m.p2provisorio&&<button className="btn btn-ghost btn-xs" style={{marginLeft:8}} onClick={e=>{e.stopPropagation();onEditMatch(m);}}>⚙️</button>}</div>}
                       </div>
                     );
                   })}
