@@ -221,3 +221,19 @@ export async function exportarTodo(){
   }));
   return Object.fromEntries(partes);
 }
+
+// Escribe los lotes de una restauración, uno por uno.
+// Cada lote es todo o nada; entre lotes no. Si se corta a la mitad, volver a
+// restaurar la misma copia termina el trabajo (solo toca lo que difiere).
+// alAvanzar(hechos, total) sirve para mostrar el progreso.
+export async function aplicarRestauracion(lotes,alAvanzar){
+  for(let i=0;i<lotes.length;i++){
+    const batch=fs().writeBatch(db());
+    lotes[i].forEach(op=>{
+      if(op.tipo==="delete")batch.delete(ref(op.col,op.id));
+      else batch.set(ref(op.col,op.id),op.datos);
+    });
+    await batch.commit();
+    if(alAvanzar)alAvanzar(i+1,lotes.length);
+  }
+}
