@@ -8,6 +8,7 @@
 // módulo puede cargarse antes de que index.html termine de inicializarlo.
 import { BLOQUE_TO_SLOTS } from "../logica/constantes.js";
 import { calcMatchResult } from "../logica/resultados.js";
+import { COLECCIONES_COPIA } from "../logica/copia.js";
 
 const fs = () => window.firestore;
 const db = () => window.db;
@@ -205,4 +206,18 @@ export async function guardarLogoClub(tipo,dataUrl){
   const id=tipo==="logoBlanco"?"logo_blanco":"logo_color";
   if(dataUrl)await fs().setDoc(ref("club",id),{dataUrl});
   else await fs().deleteDoc(ref("club",id));
+}
+
+// ===== Copia de seguridad =====
+
+// Lee todas las colecciones tal cual están guardadas: { torneos: [{id, datos}], ... }
+// Si una sola colección falla, falla todo: una copia a la que le falta una
+// parte sin avisar es peor que no tener copia, porque da falsa tranquilidad.
+export async function exportarTodo(){
+  const {collection,getDocs}=fs();
+  const partes=await Promise.all(COLECCIONES_COPIA.map(async nombre=>{
+    const s=await getDocs(collection(db(),nombre));
+    return [nombre,s.docs.map(d=>({id:d.id,datos:d.data()}))];
+  }));
+  return Object.fromEntries(partes);
 }
