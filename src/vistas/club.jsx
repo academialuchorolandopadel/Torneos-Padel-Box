@@ -3,11 +3,13 @@
 //  - FichaTorneoView: la información de cada torneo (descripción, precio, cupo, premios).
 //  - CopiaSeguridad (dentro de ClubView): descarga toda la base en un archivo
 //    y la restaura desde un archivo (RestaurarCopia).
+//  - LinkPublico (dentro de FichaTorneoView): el link de la página pública para compartir.
 import React, { useState } from "react";
 import { conDefectoClub, conDefectoFicha, normalizarColor, paletaDelClub, LOGO_MAX_BYTES } from "../logica/club.js";
 import { formatearFecha } from "../logica/fechas.js";
 import { nombreArchivoCopia, nombreArchivoPrevio, textoResumen, validarCopia, planRestauracion, resumirPlan, armarLotes, COLECCIONES_COPIA } from "../logica/copia.js";
 import { BotonConfirmar } from "./confirmar.jsx";
+import { linkPublico, numeroWhatsApp } from "../logica/publico.js";
 
 // Lee una imagen del dispositivo y la achica a un ancho máximo, conservando la transparencia
 function leerLogo(archivo, anchoMax = 800) {
@@ -325,7 +327,38 @@ export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia, onAp
   );
 }
 
-export function FichaTorneoView({ torneo, onGuardar }) {
+// El link de la página pública del torneo, con avisos de lo que le falta
+function LinkPublico({ torneo, ficha, club }) {
+  const [aviso, setAviso] = useState("");
+  const link = linkPublico(window.location.origin + window.location.pathname, torneo.id);
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(link); setAviso("✓ Link copiado"); }
+    catch { setAviso("No se pudo copiar: mantené apretado el link y copialo a mano."); }
+  };
+  const compartir = async () => {
+    try { await navigator.share({ title: torneo.nombre, text: `Inscripciones abiertas: ${torneo.nombre}`, url: link }); }
+    catch { /* la persona cerró el menú de compartir */ }
+  };
+  const faltas = [];
+  if (!numeroWhatsApp(conDefectoClub(club).whatsapp)) faltas.push("Sin un WhatsApp válido en 🏟️ Club, la página no muestra el botón para inscribirse.");
+  if (!(Number(ficha.cupo) > 0)) faltas.push("Sin cupo, la página no muestra cuántos lugares quedan.");
+  return (
+    <div className="card mb16">
+      <div className="card-title">Página pública</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>La ve cualquiera con el link: información, categorías, inscriptos, cupo y el botón para inscribirse por WhatsApp. Muestra lo último que guardaste.</div>
+      <div style={{ fontSize: 12, wordBreak: "break-all", userSelect: "all", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>{link}</div>
+      <div className="row g8 wrap">
+        <button className="btn btn-secondary btn-sm" onClick={copiar}>📋 Copiar link</button>
+        {navigator.share && <button className="btn btn-secondary btn-sm" onClick={compartir}>📤 Compartir</button>}
+        <a className="btn btn-ghost btn-sm" href={link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>👁️ Ver página</a>
+        {aviso && <span style={{ fontSize: 12, color: aviso.startsWith("✓") ? "var(--accent)" : "var(--gold)" }}>{aviso}</span>}
+      </div>
+      {faltas.map((t, i) => <div key={i} className="alert alert-warn mt8" style={{ marginBottom: 0 }}>⚠️ {t}</div>)}
+    </div>
+  );
+}
+
+export function FichaTorneoView({ torneo, onGuardar, club }) {
   const [ficha, setFicha] = useState(conDefectoFicha(torneo?.ficha));
   const [fecha, setFecha] = useState(torneo?.fecha || "");
   const [estado, setEstado] = useState("");
@@ -347,6 +380,7 @@ export function FichaTorneoView({ torneo, onGuardar }) {
       <div className="card mb16" style={{ fontSize: 12, color: "var(--muted)" }}>
         La información que van a ver los jugadores en la página del torneo. Las categorías se toman de las que creaste.
       </div>
+      {torneo && <LinkPublico torneo={torneo} ficha={conDefectoFicha(torneo.ficha)} club={club} />}
       <div className="grid2">
         <div className="card" style={{ margin: 0 }}>
           <div className="card-title">El evento</div>
