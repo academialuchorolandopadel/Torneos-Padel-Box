@@ -21,6 +21,9 @@ import { armarDirectorio } from "./logica/directorio.js";
 import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA, ventanasSemanales, compatibilidadSemanal, capacidadDia, sumarDias } from "./logica/calendario.js";
 import { EditMatchLargoModal } from "./vistas/largo.jsx";
 import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesionJugador, borrarSesionJugador } from "./datos/sesion.js";
+import { armarCopia } from "./logica/copia.js";
+import { BotonConfirmar } from "./vistas/confirmar.jsx";
+import { VERSION } from "./version.js";
 
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
@@ -80,6 +83,9 @@ export default function App() {
       finally{if(isRefresh)setRefreshing(false);else setLoading(false);}
   };
   useEffect(()=>{loadData();},[]);
+
+  // Pie con la versión: se muestra en todas las pantallas
+  const pie=<div className="pie-version">PadelBox {VERSION}</div>;
 
   const activeTorneo=torneos.find(t=>t.id===activeTId);
   const activeCat=activeTorneo?.categorias?.find(c=>c.id===activeCId);
@@ -690,6 +696,12 @@ export default function App() {
     catch(err){setTorneos(prev=>prev.map(t=>t.id===tid?antes:t));throw err;}
   }
 
+  // Copia de seguridad: lee la base tal cual está y arma el archivo (la descarga la hace la pantalla)
+  async function prepararCopia(){
+    const colecciones=await datos.exportarTodo();
+    return armarCopia(colecciones,VERSION,new Date().toISOString());
+  }
+
   async function eliminarTorneo(tid){
     // Calcular jugadores afectados ANTES de actualizar el estado
     const jugAfectados={};
@@ -723,8 +735,8 @@ export default function App() {
     }
   }
 
-  if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div></div></>);
-  if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div></div></>);
+  if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div>{pie}</div></>);
+  if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div>{pie}</div></>);
 
   if(!isAdmin&&!isPlayer){
     if(publicRanking)return(<><style>{CSS}</style><div className="app">
@@ -735,6 +747,7 @@ export default function App() {
       <div className="main">
         <JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={()=>{}} onUpdateCategoria={()=>{}} onUpdateGenero={()=>{}} onCreateJugador={()=>{}} isAdmin={false}/>
       </div>
+      {pie}
     </div></>);
     return(<><style>{CSS}</style><div className="app">
     <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
@@ -754,6 +767,7 @@ export default function App() {
         <button className="btn btn-cyan" style={{marginTop:16}} onClick={()=>setPublicRanking(true)}>🏅 Ver Ranking del Club</button>
       </div>
     </div>
+    {pie}
     {showPlayerLogin&&<PlayerLoginModal error={playerLoginError} onClearError={()=>setPlayerLoginError("")} onSubmit={handlePlayerLogin} onClose={()=>{setShowPlayerLogin(false);setPlayerLoginError("");}}/>}
     {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
   </div></>);
@@ -771,7 +785,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub} onPrepararCopia={prepararCopia}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
@@ -785,7 +799,7 @@ export default function App() {
           </div>
           {torneos.length===0?<div className="empty"><div className="empty-ico">🎾</div><p>No hay torneos creados aún</p></div>:(
             <div className="grid2">{torneos.map(t=>(
-              <button key={t.id} className="t-card" onClick={()=>{setActiveTId(t.id);
+              <div key={t.id} className="t-card" role="button" tabIndex={0} onKeyDown={e=>{if(e.target===e.currentTarget&&(e.key==="Enter"||e.key===" ")){e.preventDefault();e.currentTarget.click();}}} onClick={()=>{setActiveTId(t.id);
                 const autocat=(!isAdmin&&isPlayer&&playerCedula)?t.categorias?.find(c=>c.parejas?.some(p=>p.j1cedula===playerCedula||p.j2cedula===playerCedula)):null;
                 setActiveCId(autocat?.id||null);
                 setSubview(isAdmin?"inscripcion":["americano_individual","americano_pareja"].includes(autocat?.modalidad)?"americano":"mitorneo");}}>
@@ -797,13 +811,14 @@ export default function App() {
                   {t.catTipo==="suma"&&t.catNum&&<span className="badge bb">Suma {t.catNum}</span>}
                 </div>
                 <div className="row wrap g8">{t.categorias.map(c=><span key={c.id} className="badge bb">{c.nombre}</span>)}{!t.categorias.length&&<span className="badge bx">Sin categorias</span>}</div>
-                {isAdmin&&<div className="t-card-del" onClick={e=>{e.stopPropagation();if(window.confirm("¿Eliminar este torneo?"))eliminarTorneo(t.id);}}><button className="btn btn-danger btn-xs">Eliminar</button></div>}
-              </button>
+                {isAdmin&&<div className="t-card-del" onClick={e=>e.stopPropagation()}><BotonConfirmar pregunta="¿Eliminar torneo? Se descuentan sus puntos." textoSi="Sí, eliminar" onConfirmar={()=>eliminarTorneo(t.id)}>Eliminar</BotonConfirmar></div>}
+              </div>
             ))}</div>
           )}
         </>
       )}
     </div>
+    {pie}
     {modal?.type==="newT"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nuevo Torneo</div>
       <div className="col mb12"><label className="lbl">Nombre completo</label><input className="inp" autoFocus placeholder="ej: Torneo Aniversario Box 2026" value={tForm.nombre} onChange={e=>setTForm(p=>({...p,nombre:e.target.value}))}/></div>
@@ -900,6 +915,7 @@ export default function App() {
         </>
       )}
     </div>
+    {pie}
     {modal?.type==="newC"&&<div className="overlay" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}>
       <div className="modal-title">Nueva Categoría</div>
       <div className="col mb12"><label className="lbl">Nombre</label><input className="inp" autoFocus placeholder="ej: Primera, Damas, Mixtos..." value={cForm.nombre} onChange={e=>setCForm(p=>({...p,nombre:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&crearCategoria()}/></div>
