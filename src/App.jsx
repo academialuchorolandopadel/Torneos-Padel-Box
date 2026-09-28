@@ -900,7 +900,7 @@ export default function App() {
         {activeTorneo?.categorias?.map(c=><button key={c.id} className={`cat-tab${activeCId===c.id?" on":""}`} onClick={()=>setActiveCId(c.id)}>{c.nombre}</button>)}
         {isAdmin&&<button className="cat-tab add" onClick={()=>setModal({type:"newC"})}>+ Categoría</button>}
       </div>
-      {subview==="ficha"&&isAdmin?<FichaTorneoView key={activeTId} torneo={activeTorneo} onGuardar={guardarFichaTorneo}/>:!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
+      {subview==="ficha"&&isAdmin?<FichaTorneoView key={activeTId} torneo={activeTorneo} onGuardar={guardarFichaTorneo} club={club}/>:!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
           {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} directorio={armarDirectorio(jugadores,torneos)}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
