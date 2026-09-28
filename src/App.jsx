@@ -16,6 +16,7 @@ import { InscripcionAmericanoIndividual, AmericanoIndividualView, AmericanoParej
 import * as datos from "./datos/firestore.js";
 import { CalendarioClubView } from "./vistas/calendario.jsx";
 import { ClubView, FichaTorneoView } from "./vistas/club.jsx";
+import { ImagenSemanaModal } from "./vistas/imagen.jsx";
 import { armarDirectorio } from "./logica/directorio.js";
 import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA, ventanasSemanales, compatibilidadSemanal, capacidadDia, sumarDias } from "./logica/calendario.js";
 import { EditMatchLargoModal } from "./vistas/largo.jsx";
@@ -891,7 +892,7 @@ export default function App() {
           {subview==="americano"&&activeCat?.modalidad==="americano_individual"&&<AmericanoIndividualView cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onGuardarResultado={guardarResultadoAmericanoIndividual} onOtorgarPuntos={otorgarPuntos} onGenerarFixture={generarFixtureAmericanoIndividual} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="americano"&&activeCat?.modalidad==="americano_pareja"&&<AmericanoParejasView cat={activeCat} isAdmin={isAdmin} onGuardarResultado={guardarResultadoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoPareja} onOtorgarPuntos={otorgarPuntos} pointsAwarded={activeCat?.pointsAwarded}/>}
           {subview==="mitorneo"&&!isAdmin&&<MiTorneo torneo={activeTorneo} playerCedula={playerCedula}/>}
-          {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} onReproponer={reproponerLargo} infoLargo={infoLargo} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
+          {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} onReproponer={reproponerLargo} infoLargo={infoLargo} onImagen={()=>setModal({type:"imagen"})} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
           {subview==="llave"&&<LlaveFinal modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
@@ -905,6 +906,7 @@ export default function App() {
       <div className="col mb16"><label className="lbl">Modalidad</label><select className="inp" value={cForm.modalidad} onChange={e=>setCForm(p=>({...p,modalidad:e.target.value}))}><option value="estandar">Estándar (Zonas + Llave)</option><option value="americano_zonas">🎯 Americano (Zonas + Llave, 1 set)</option><option value="americano_individual">🏓 Americano Individual (todos con todos)</option><option value="americano_pareja">🎾 Americano Parejas (todos contra todos, 1 set)</option></select></div>
       <div className="row g8"><button className="btn btn-primary f1" onClick={crearCategoria}>Crear</button><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button></div>
     </div></div>}
+    {modal?.type==="imagen"&&activeTorneo&&<ImagenSemanaModal torneo={activeTorneo} club={club} onClose={()=>setModal(null)}/>}
     {modal?.type==="editPair"&&<EditPairModal pair={modal.pair} onSave={editarPareja} onClose={()=>setModal(null)} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"}/>}
     {modal?.type==="res"&&activeCat&&<ResultModal match={modal.match} cat={activeCat} onSave={guardarResultado} onClose={()=>setModal(null)} isAmericano={activeCat?.modalidad==="americano_zonas"}/>}
     {modal?.type==="koRes"&&activeCat&&(()=>{
