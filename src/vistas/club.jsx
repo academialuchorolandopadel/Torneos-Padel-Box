@@ -1,11 +1,13 @@
 // Pantallas:
 //  - ClubView: datos del club (identidad, contacto, pago). Se cargan una vez.
 //  - FichaTorneoView: la información de cada torneo (descripción, precio, cupo, premios).
-//  - CopiaSeguridad (dentro de ClubView): descarga toda la base en un archivo.
+//  - CopiaSeguridad (dentro de ClubView): descarga toda la base en un archivo
+//    y la restaura desde un archivo (RestaurarCopia).
 import React, { useState } from "react";
 import { conDefectoClub, conDefectoFicha, normalizarColor, paletaDelClub, LOGO_MAX_BYTES } from "../logica/club.js";
 import { formatearFecha } from "../logica/fechas.js";
-import { nombreArchivoCopia, textoResumen } from "../logica/copia.js";
+import { nombreArchivoCopia, nombreArchivoPrevio, textoResumen, validarCopia, planRestauracion, resumirPlan, armarLotes, COLECCIONES_COPIA } from "../logica/copia.js";
+import { BotonConfirmar } from "./confirmar.jsx";
 
 // Lee una imagen del dispositivo y la achica a un ancho máximo, conservando la transparencia
 function leerLogo(archivo, anchoMax = 800) {
@@ -94,7 +96,19 @@ const KEY_ULTIMA_COPIA = "padelbox_ultima_copia";
 const leerUltimaCopia = () => { try { return localStorage.getItem(KEY_ULTIMA_COPIA) || ""; } catch { return ""; } };
 const DIAS_AVISO_COPIA = 7;
 
-function CopiaSeguridad({ onPrepararCopia }) {
+// Descarga un objeto como archivo .json
+function descargarJSON(obj, nombre) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(obj)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+const fechaCorta = (iso) => new Date(iso).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" });
+const NOMBRE_COL = { torneos: "Torneos", categorias: "Categorías", parejas: "Parejas", partidos: "Partidos", jugadores: "Jugadores", calendarioClub: "Días del calendario", club: "Datos del club" };
+
+function CopiaSeguridad({ onPrepararCopia, onAplicarRestauracion, onRestaurado }) {
   const [estado, setEstado] = useState(""); // "" | "trabajando" | "ok" | "error"
   const [detalle, setDetalle] = useState("");
   const [ultima, setUltima] = useState(leerUltimaCopia());
@@ -102,11 +116,7 @@ function CopiaSeguridad({ onPrepararCopia }) {
     setEstado("trabajando"); setDetalle("");
     try {
       const copia = await onPrepararCopia();
-      const url = URL.createObjectURL(new Blob([JSON.stringify(copia)], { type: "application/json" }));
-      const a = document.createElement("a");
-      a.href = url; a.download = nombreArchivoCopia(copia.fecha);
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      descargarJSON(copia, nombreArchivoCopia(copia.fecha));
       try { localStorage.setItem(KEY_ULTIMA_COPIA, copia.fecha); } catch { /* sin almacenamiento: solo no se recuerda la fecha */ }
       setUltima(copia.fecha); setEstado("ok"); setDetalle(textoResumen(copia.resumen));
     } catch (err) { setEstado("error"); setDetalle(err.message); }
@@ -122,16 +132,122 @@ function CopiaSeguridad({ onPrepararCopia }) {
       <div className="row g8 wrap" style={{ alignItems: "center" }}>
         <button className="btn btn-primary" onClick={descargar} disabled={estado === "trabajando"}>{estado === "trabajando" ? "Preparando copia..." : "⬇️ Descargar copia"}</button>
         <span style={{ fontSize: 12, color: vieja ? "var(--gold)" : "var(--muted)" }}>
-          {ultima ? `Última copia desde este dispositivo: ${new Date(ultima).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" })}${dias > 0 ? ` (hace ${dias} ${dias === 1 ? "día" : "días"})` : ""}` : "Todavía no descargaste ninguna copia desde este dispositivo."}
+          {ultima ? `Última copia desde este dispositivo: ${fechaCorta(ultima)}${dias > 0 ? ` (hace ${dias} ${dias === 1 ? "día" : "días"})` : ""}` : "Todavía no descargaste ninguna copia desde este dispositivo."}
         </span>
       </div>
       {estado === "ok" && <div className="alert alert-ok mt8" style={{ marginBottom: 0 }}>✓ Copia descargada: {detalle}</div>}
       {estado === "error" && <div className="alert alert-warn mt8" style={{ marginBottom: 0 }}>No se pudo hacer la copia: {detalle}. No se descargó nada; probá de nuevo.</div>}
+      {onAplicarRestauracion && <RestaurarCopia onPrepararCopia={onPrepararCopia} onAplicarRestauracion={onAplicarRestauracion} onRestaurado={onRestaurado} />}
     </div>
   );
 }
 
-export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia }) {
+// Restaurar: deja la base igual a un archivo de copia.
+// Pasos: 1) elegir archivo -> se valida y se muestra qué va a cambiar.
+//        2) confirmar -> se descarga una copia del estado actual (para poder
+//           deshacer), se recalcula el plan con esa lectura fresca y se escribe.
+function RestaurarCopia({ onPrepararCopia, onAplicarRestauracion, onRestaurado }) {
+  const [fase, setFase] = useState(""); // "" | "leyendo" | "revision" | "restaurando" | "listo" | "error"
+  const [copia, setCopia] = useState(null);
+  const [revision, setRevision] = useState(null); // { resumen, versionApp }
+  const [mensaje, setMensaje] = useState("");
+  const cancelar = () => { setFase(""); setCopia(null); setRevision(null); setMensaje(""); };
+
+  const elegirArchivo = async (e) => {
+    const archivo = e.target.files && e.target.files[0];
+    e.target.value = ""; // permite volver a elegir el mismo archivo
+    // Sin filtro de tipo en el selector: en Android algunos selectores esconden
+    // los .json. Si eligen cualquier otra cosa, la validación lo rechaza.
+    if (!archivo) return;
+    setFase("leyendo"); setMensaje(""); setRevision(null);
+    try {
+      let leida;
+      try { leida = JSON.parse(await archivo.text()); } catch { throw new Error("El archivo no se puede leer como copia (no es un .json válido)."); }
+      const v = validarCopia(leida);
+      if (!v.ok) throw new Error(v.error);
+      const actual = await onPrepararCopia();
+      const ops = planRestauracion(actual.colecciones, leida.colecciones);
+      setCopia(leida);
+      setRevision({ resumen: resumirPlan(ops, actual.colecciones), versionApp: actual.version });
+      setFase("revision");
+    } catch (err) { setFase("error"); setMensaje(err.message); }
+  };
+
+  const restaurar = async () => {
+    setFase("restaurando"); setMensaje("Guardando el estado actual...");
+    let antes;
+    try {
+      antes = await onPrepararCopia();
+      descargarJSON(antes, nombreArchivoPrevio(antes.fecha));
+    } catch (err) { setFase("error"); setMensaje(`No se pudo guardar el estado actual (${err.message}). No se restauró nada.`); return; }
+    const lotes = armarLotes(planRestauracion(antes.colecciones, copia.colecciones));
+    let hechos = 0;
+    try {
+      setMensaje("Restaurando...");
+      await onAplicarRestauracion(lotes, (h, t) => { hechos = h; setMensaje(`Restaurando... parte ${h} de ${t}`); });
+    } catch (err) {
+      setFase("error");
+      setMensaje(`Se cortó en la parte ${hechos + 1} de ${lotes.length} (${err.message}). La base quedó a medio restaurar: volvé a restaurar la misma copia para terminar. Para volver atrás, restaurá el archivo "${nombreArchivoPrevio(antes.fecha)}" que se descargó recién.`);
+      if (onRestaurado) onRestaurado();
+      return;
+    }
+    if (onRestaurado) await onRestaurado();
+    setFase("listo");
+    setMensaje(`La base quedó igual a la copia del ${fechaCorta(copia.fecha)}. El estado anterior se descargó como "${nombreArchivoPrevio(antes.fecha)}": guardalo por si necesitás volver atrás.`);
+  };
+
+  const r = revision && revision.resumen;
+  const lista = (titulo, nombres) => nombres.length > 0 && <div style={{ marginBottom: 4 }}><b>{titulo}:</b> {nombres.join(", ")}</div>;
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", marginTop: 16, paddingTop: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>Restaurar una copia</div>
+      <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
+        Deja la base igual a como estaba en el archivo que elijas. Antes de escribir te muestra qué va a cambiar.
+      </p>
+      {(fase === "" || fase === "error" || fase === "listo") && (
+        <label className="btn btn-ghost" style={{ display: "inline-block", cursor: "pointer" }}>
+          📂 Elegir archivo de copia
+          <input type="file" data-copia="1" onChange={elegirArchivo} style={{ display: "none" }} />
+        </label>
+      )}
+      {fase === "leyendo" && <div style={{ fontSize: 12, color: "var(--muted)" }}>Leyendo la copia y comparando con la base...</div>}
+      {fase === "revision" && r && (
+        <div className="alert alert-warn" style={{ marginBottom: 0, lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 6 }}>Copia del <b>{fechaCorta(copia.fecha)}</b> ({copia.version || "versión desconocida"}).</div>
+          {copia.version !== revision.versionApp && <div style={{ marginBottom: 6 }}>⚠️ La copia es de la {copia.version || "versión desconocida"} y la app está en la {revision.versionApp}. Si entre esas versiones cambió la forma de guardar los datos, la app puede quedar inconsistente.</div>}
+          {r.total === 0 ? (
+            <div>La base ya es igual a esta copia. No hay nada que restaurar.</div>
+          ) : (
+            <>
+              {lista("Torneos que vuelven", r.torneos.vuelven)}
+              {lista("Torneos que desaparecen", r.torneos.desaparecen)}
+              {lista("Torneos que cambian", r.torneos.cambian)}
+              <div style={{ margin: "6px 0" }}>
+                {COLECCIONES_COPIA.filter(c => { const x = r.porCol[c]; return x.vuelven + x.cambian + x.desaparecen > 0; }).map(c => {
+                  const x = r.porCol[c]; const partes = [];
+                  if (x.vuelven) partes.push(`${x.vuelven} vuelven`);
+                  if (x.cambian) partes.push(`${x.cambian} cambian`);
+                  if (x.desaparecen) partes.push(`${x.desaparecen} desaparecen`);
+                  return <div key={c}>{NOMBRE_COL[c]}: {partes.join(", ")}</div>;
+                })}
+              </div>
+              <div style={{ marginBottom: 8 }}>Todo lo que se cargó después de esa copia se pierde. Antes de escribir se descarga una copia del estado actual, para poder deshacerlo.</div>
+            </>
+          )}
+          <div className="row g8 wrap">
+            {r.total > 0 && <BotonConfirmar className="btn btn-danger btn-sm" pregunta="¿La base queda igual a la copia?" textoSi="Sí, restaurar" onConfirmar={restaurar}>Restaurar esta copia</BotonConfirmar>}
+            <button className="btn btn-ghost btn-sm" onClick={cancelar}>{r.total > 0 ? "Cancelar" : "Cerrar"}</button>
+          </div>
+        </div>
+      )}
+      {fase === "restaurando" && <div style={{ fontSize: 12, color: "var(--gold)" }}>⏳ {mensaje} No cierres la app.</div>}
+      {fase === "listo" && <div className="alert alert-ok mt8" style={{ marginBottom: 0 }}>✓ {mensaje}</div>}
+      {fase === "error" && mensaje && <div className="alert alert-warn mt8" style={{ marginBottom: 0 }}>{mensaje}</div>}
+    </div>
+  );
+}
+
+export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia, onAplicarRestauracion, onRestaurado }) {
   const [form, setForm] = useState(conDefectoClub(club));
   const [estado, setEstado] = useState("");
   const set = (k) => (v) => { setForm(f => ({ ...f, [k]: v })); setEstado(""); };
@@ -204,7 +320,7 @@ export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia }) {
           </div>
         </div>
       </div>
-      {onPrepararCopia && <CopiaSeguridad onPrepararCopia={onPrepararCopia} />}
+      {onPrepararCopia && <CopiaSeguridad onPrepararCopia={onPrepararCopia} onAplicarRestauracion={onAplicarRestauracion} onRestaurado={onRestaurado} />}
     </div>
   );
 }
