@@ -4,6 +4,7 @@ import { STAGE_LABEL, CAT_LABELS, CAT_COLORS, GENERO_COLORS, FIP_LINKS } from ".
 import { calcStandings, calcPlayerStats } from "../logica/resultados.js";
 import { getRoundNames, calcPairStages } from "../logica/llave.js";
 import { formatearFecha } from "../logica/fechas.js";
+import { BotonConfirmar } from "./confirmar.jsx";
 
 export function ReglamentoView(){
   return (
@@ -47,7 +48,7 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
   const [confirmDeleteIdx,setConfirmDeleteIdx]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
   const jug=sel?jugadores[sel]:null;
-  const handleDelete=(cedula,e)=>{e.stopPropagation();if(!isAdmin)return;if(window.confirm(`¿Eliminar a ${jugadores[cedula]?.nombre} del ranking?`)){onDeleteJugador(cedula);if(sel===cedula)setSel(null);}};
+  const handleDelete=(cedula)=>{if(!isAdmin)return;onDeleteJugador(cedula);if(sel===cedula)setSel(null);};
   const handleCatChange=(cedula,val)=>{onUpdateCategoria(cedula,val?Number(val):null);setEditingCat(null);};
   // Derivar género: override manual primero, luego del historial
   const getGenero=(j)=>{
@@ -99,7 +100,7 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
       ):(
         <button className="btn btn-ghost btn-xs" onClick={e=>{e.stopPropagation();setEditingGenero(j.cedula);}} title="Género" style={{color:getGenero(j)==="M"?"var(--accent2)":getGenero(j)==="F"?"#ff64b4":"var(--muted)"}}>{getGenero(j)==="M"?"♂":getGenero(j)==="F"?"♀":"⚧"}</button>
       ))}
-      {isAdmin&&<button className="btn btn-danger btn-xs" onClick={e=>handleDelete(j.cedula,e)}>🗑️</button>}
+      {isAdmin&&<BotonConfirmar pregunta={`¿Borrar a ${j.nombre} y su historial?`} textoSi="Sí, borrar" onConfirmar={()=>handleDelete(j.cedula)}>🗑️</BotonConfirmar>}
     </div>
   );
   const renderCol=(groups,color)=>{
