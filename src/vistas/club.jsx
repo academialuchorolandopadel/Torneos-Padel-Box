@@ -1,9 +1,11 @@
 // Pantallas:
 //  - ClubView: datos del club (identidad, contacto, pago). Se cargan una vez.
 //  - FichaTorneoView: la información de cada torneo (descripción, precio, cupo, premios).
+//  - CopiaSeguridad (dentro de ClubView): descarga toda la base en un archivo.
 import React, { useState } from "react";
 import { conDefectoClub, conDefectoFicha, normalizarColor, paletaDelClub, LOGO_MAX_BYTES } from "../logica/club.js";
 import { formatearFecha } from "../logica/fechas.js";
+import { nombreArchivoCopia, textoResumen } from "../logica/copia.js";
 
 // Lee una imagen del dispositivo y la achica a un ancho máximo, conservando la transparencia
 function leerLogo(archivo, anchoMax = 800) {
@@ -86,7 +88,50 @@ function VistaPrevia({ club }) {
   );
 }
 
-export function ClubView({ club, onGuardar, onGuardarLogo }) {
+// La fecha de la última copia se recuerda en este dispositivo (no en la base):
+// sirve de recordatorio, no de registro.
+const KEY_ULTIMA_COPIA = "padelbox_ultima_copia";
+const leerUltimaCopia = () => { try { return localStorage.getItem(KEY_ULTIMA_COPIA) || ""; } catch { return ""; } };
+const DIAS_AVISO_COPIA = 7;
+
+function CopiaSeguridad({ onPrepararCopia }) {
+  const [estado, setEstado] = useState(""); // "" | "trabajando" | "ok" | "error"
+  const [detalle, setDetalle] = useState("");
+  const [ultima, setUltima] = useState(leerUltimaCopia());
+  const descargar = async () => {
+    setEstado("trabajando"); setDetalle("");
+    try {
+      const copia = await onPrepararCopia();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(copia)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = nombreArchivoCopia(copia.fecha);
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      try { localStorage.setItem(KEY_ULTIMA_COPIA, copia.fecha); } catch { /* sin almacenamiento: solo no se recuerda la fecha */ }
+      setUltima(copia.fecha); setEstado("ok"); setDetalle(textoResumen(copia.resumen));
+    } catch (err) { setEstado("error"); setDetalle(err.message); }
+  };
+  const dias = ultima ? Math.floor((Date.now() - new Date(ultima).getTime()) / 86400000) : null;
+  const vieja = dias === null || dias >= DIAS_AVISO_COPIA;
+  return (
+    <div className="card mb16">
+      <div className="card-title">Copia de seguridad</div>
+      <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
+        Descarga toda la base (torneos, parejas, resultados, ranking, calendario y club) en un archivo. Guardalo en Drive o en tu computadora. Conviene hacerlo antes de cada torneo y antes de cualquier cambio grande.
+      </p>
+      <div className="row g8 wrap" style={{ alignItems: "center" }}>
+        <button className="btn btn-primary" onClick={descargar} disabled={estado === "trabajando"}>{estado === "trabajando" ? "Preparando copia..." : "⬇️ Descargar copia"}</button>
+        <span style={{ fontSize: 12, color: vieja ? "var(--gold)" : "var(--muted)" }}>
+          {ultima ? `Última copia desde este dispositivo: ${new Date(ultima).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" })}${dias > 0 ? ` (hace ${dias} ${dias === 1 ? "día" : "días"})` : ""}` : "Todavía no descargaste ninguna copia desde este dispositivo."}
+        </span>
+      </div>
+      {estado === "ok" && <div className="alert alert-ok mt8" style={{ marginBottom: 0 }}>✓ Copia descargada: {detalle}</div>}
+      {estado === "error" && <div className="alert alert-warn mt8" style={{ marginBottom: 0 }}>No se pudo hacer la copia: {detalle}. No se descargó nada; probá de nuevo.</div>}
+    </div>
+  );
+}
+
+export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia }) {
   const [form, setForm] = useState(conDefectoClub(club));
   const [estado, setEstado] = useState("");
   const set = (k) => (v) => { setForm(f => ({ ...f, [k]: v })); setEstado(""); };
@@ -159,6 +204,7 @@ export function ClubView({ club, onGuardar, onGuardarLogo }) {
           </div>
         </div>
       </div>
+      {onPrepararCopia && <CopiaSeguridad onPrepararCopia={onPrepararCopia} />}
     </div>
   );
 }
