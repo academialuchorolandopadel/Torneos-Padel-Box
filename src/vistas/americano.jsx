@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { AMERICANO_POS_PTS } from "../logica/constantes.js";
 import { calcAmericanoIndStandings, calcAmericanoParejasStandings } from "../logica/resultados.js";
+import { BotonConfirmar } from "./confirmar.jsx";
 
 export function InscripcionAmericanoIndividual({cat,isAdmin,jugadoresGlobal,onAgregar,onEliminar,onTogglePago,onGenerarFixture}){
   const [cedula,setCedula]=useState("");
@@ -75,7 +76,7 @@ export function AmericanoIndividualView({cat,isAdmin,jugadoresGlobal,onGuardarRe
           <span className="badge bb">{totalDone}/{partidos.length}</span>
           {pointsAwarded&&<span className="badge bg">Puntos otorgados</span>}
           {isAdmin&&totalDone===partidos.length&&partidos.length>0&&<button className="btn btn-cyan btn-sm" onClick={onOtorgarPuntos}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
-          {isAdmin&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{if(window.confirm("Regenerar borra los resultados actuales. Continuar?"))onGenerarFixture();}}>🔄 Regenerar</button>}
+          {isAdmin&&<BotonConfirmar className="btn btn-ghost btn-sm" style={{fontSize:11}} pregunta="Se borran los resultados cargados." textoSi="Sí, regenerar" onConfirmar={onGenerarFixture}>🔄 Regenerar</BotonConfirmar>}
         </div>
       </div>
       <div className="grid2">
@@ -172,7 +173,7 @@ export function AmericanoParejasView({cat,isAdmin,onGuardarResultado,onGenerarFi
           <span className="badge bb">{totalDone}/{partidos.length}</span>
           {pointsAwarded&&<span className="badge bg">Puntos otorgados</span>}
           {isAdmin&&totalDone===partidos.length&&partidos.length>0&&<button className="btn btn-cyan btn-sm" onClick={onOtorgarPuntos}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
-          {isAdmin&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{if(window.confirm("Regenerar borra los resultados actuales. Continuar?"))onGenerarFixture();}}>🔄 Regenerar</button>}
+          {isAdmin&&<BotonConfirmar className="btn btn-ghost btn-sm" style={{fontSize:11}} pregunta="Se borran los resultados cargados." textoSi="Sí, regenerar" onConfirmar={onGenerarFixture}>🔄 Regenerar</BotonConfirmar>}
         </div>
       </div>
       <div className="grid2">
