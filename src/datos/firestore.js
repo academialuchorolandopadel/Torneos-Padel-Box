@@ -59,7 +59,17 @@ export async function cargarTodo(){
     const cs=await getDocs(collection(db(),"calendarioClub"));
     cs.docs.forEach(d=>{calendarioClub[d.id]={fecha:d.id,...d.data()};});
   }catch(err){console.error("No se pudo leer el calendario del club:",err);}
-  return {torneos,jugadores,calendarioClub};
+  // Club: los datos en un documento y cada logo en el suyo (las imágenes pesan)
+  let club={};
+  try{
+    const ks=await getDocs(collection(db(),"club"));
+    ks.docs.forEach(d=>{
+      if(d.id==="datos")club={...club,...d.data()};
+      else if(d.id==="logo_color")club.logoColor=d.data().dataUrl||"";
+      else if(d.id==="logo_blanco")club.logoBlanco=d.data().dataUrl||"";
+    });
+  }catch(err){console.error("No se pudieron leer los datos del club:",err);}
+  return {torneos,jugadores,calendarioClub,club};
 }
 
 // ===== Torneos =====
@@ -182,4 +192,17 @@ export async function guardarDiasClub(dias){
     else batch.delete(ref("calendarioClub",fecha));
   });
   await batch.commit();
+}
+
+// ===== Club =====
+
+export async function guardarDatosClub(datos){
+  await fs().setDoc(ref("club","datos"),datos);
+}
+
+// tipo: "logoColor" o "logoBlanco"; dataUrl vacío = quitar el logo
+export async function guardarLogoClub(tipo,dataUrl){
+  const id=tipo==="logoBlanco"?"logo_blanco":"logo_color";
+  if(dataUrl)await fs().setDoc(ref("club",id),{dataUrl});
+  else await fs().deleteDoc(ref("club",id));
 }
