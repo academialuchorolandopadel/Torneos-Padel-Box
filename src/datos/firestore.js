@@ -208,6 +208,43 @@ export async function guardarLogoClub(tipo,dataUrl){
   else await fs().deleteDoc(ref("club",id));
 }
 
+// ===== Página pública del torneo =====
+
+// Lee SOLO lo que muestra la página de un torneo: el torneo, sus categorías,
+// los nombres de los inscriptos y los datos del club (con un solo logo).
+// No usa cargarTodo(): la página se abre desde el celular de cualquiera y
+// tiene que ser liviana. Devuelve null si el torneo no existe.
+// Nota: Firestore igual entrega cada documento de pareja completo; acá se
+// descarta todo menos los nombres, pero ocultar las cédulas de verdad es la
+// migración pendiente (las reglas de lectura siguen abiertas).
+export async function cargarTorneoPublico(torneoId){
+  const {collection,getDocs,getDoc,query,where}=fs();
+  const t=await getDoc(ref("torneos",torneoId));
+  if(!t.exists())return null;
+  const torneo={id:t.id,...t.data()};
+  const cs=await getDocs(query(collection(db(),"categorias"),where("torneoId","==",torneoId)));
+  const categorias=await Promise.all(cs.docs.map(async dc=>{
+    const c=dc.data();
+    const ps=await getDocs(query(collection(db(),"parejas"),where("categoriaId","==",dc.id)));
+    const parejas=ps.docs.map(d=>{const p=d.data();return {j1nombre:p.j1nombre||p.j1||"",j2nombre:p.j2nombre||p.j2||"",nombre:p.nombre||""};});
+    return {id:dc.id,nombre:c.nombre,modalidad:c.modalidad,
+      fixtureGenerado:!!(c.fixtureGenerado||c.americanoFixtureGenerado),
+      parejas,jugadoresAmericano:(c.jugadoresAmericano||[]).map(j=>({nombre:j.nombre}))};
+  }));
+  // Club: los datos y solo el logo que corresponde al tema (cada logo pesa hasta 700 KB)
+  let club={};
+  try{
+    const d=await getDoc(ref("club","datos"));
+    if(d.exists())club={...d.data()};
+    const orden=club.tema==="claro"?["logo_color","logo_blanco"]:["logo_blanco","logo_color"];
+    for(const id of orden){
+      const l=await getDoc(ref("club",id));
+      if(l.exists()&&l.data().dataUrl){club[id==="logo_blanco"?"logoBlanco":"logoColor"]=l.data().dataUrl;break;}
+    }
+  }catch(err){console.error("No se pudieron leer los datos del club:",err);}
+  return {torneo,categorias,club};
+}
+
 // ===== Copia de seguridad =====
 
 // Lee todas las colecciones tal cual están guardadas: { torneos: [{id, datos}], ... }
