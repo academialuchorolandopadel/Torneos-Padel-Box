@@ -75,6 +75,9 @@ export const CSS = `
   .t-card-meta{font-size:12px;color:var(--muted);margin-bottom:10px}
   .t-card-del{position:absolute;top:12px;right:12px;opacity:0;transition:opacity .15s}
   .t-card:hover .t-card-del{opacity:1}
+  .t-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  /* En pantallas táctiles no hay "pasar el mouse": el botón queda siempre visible */
+  @media(hover:none){.t-card-del{opacity:1}.t-card:hover{transform:none}}
   .cat-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
   .cat-tab{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'Oswald',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
   .cat-tab.on{background:rgba(61,255,160,.08);border-color:var(--accent);color:var(--accent)}
@@ -133,6 +136,12 @@ export const CSS = `
   .hist-item{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg3);border-radius:8px;margin-bottom:6px;border:1px solid var(--border)}
   .alert{padding:10px 14px;border-radius:9px;font-size:12px;margin-bottom:16px}
   .alert-warn{background:rgba(255,203,71,.08);border:1px solid rgba(255,203,71,.25);color:var(--gold)}
+  .alert-ok{background:rgba(61,255,160,.06);border:1px solid rgba(61,255,160,.25);color:var(--accent)}
+  /* Confirmación dentro de la pantalla (reemplaza window.confirm) */
+  .confirmar{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--bg2);border:1px solid rgba(255,51,85,.4);border-radius:8px;padding:4px 6px}
+  .confirmar-txt{font-size:11px;color:var(--danger);font-weight:600}
+  /* Versión al pie */
+  .pie-version{text-align:center;font-size:10px;color:var(--muted);padding:20px 0 14px;letter-spacing:.5px}
   .divider{height:1px;background:var(--border);margin:16px 0}
   .restr-toggle{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:9px;border:1px dashed var(--border);background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;width:100%;text-align:left;margin-bottom:12px}
   .restr-toggle.active{background:rgba(61,255,160,.06);border-color:var(--accent);color:var(--accent);border-style:solid}
