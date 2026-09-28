@@ -15,6 +15,7 @@ import { JugadoresView, MiTorneo, ReglamentoView } from "./vistas/jugadores.jsx"
 import { InscripcionAmericanoIndividual, AmericanoIndividualView, AmericanoParejasView } from "./vistas/americano.jsx";
 import * as datos from "./datos/firestore.js";
 import { CalendarioClubView } from "./vistas/calendario.jsx";
+import { ClubView, FichaTorneoView } from "./vistas/club.jsx";
 import { armarDirectorio } from "./logica/directorio.js";
 import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA, ventanasSemanales, compatibilidadSemanal, capacidadDia, sumarDias } from "./logica/calendario.js";
 import { EditMatchLargoModal } from "./vistas/largo.jsx";
@@ -22,6 +23,7 @@ import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesio
 
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
+  {id:"ficha",label:"📝 Ficha",adminOnly:true},
   {id:"inscripcion",label:"👥 Inscripción",adminOnly:true},
   {id:"fixture",label:"📅 Fixture",hideRR:true},
   {id:"resultados",label:"⚡ Resultados",hideRR:true},
@@ -56,6 +58,7 @@ export default function App() {
   const [playerCedula,setPlayerCedula]=useState(null);
   const [publicRanking,setPublicRanking]=useState(false);
   const [calendarioClub,setCalendarioClub]=useState({});
+  const [club,setClub]=useState({});
 
   useEffect(()=>{
     // Sesion admin: Firebase Auth (persiste entre recargas y dispositivos)
@@ -69,8 +72,8 @@ export default function App() {
   const loadData=async(isRefresh=false)=>{
     try {
       if(isRefresh)setRefreshing(true);else setLoading(true);
-      const {torneos:tc,jugadores:jugs,calendarioClub:cal}=await datos.cargarTodo();
-      setTorneos(tc);setCalendarioClub(cal);
+      const {torneos:tc,jugadores:jugs,calendarioClub:cal,club:cl}=await datos.cargarTodo();
+      setTorneos(tc);setCalendarioClub(cal);setClub(cl||{});
       setJugadores(jugs);setError(null);
       } catch(err){console.error(err);setError(err.message);}
       finally{if(isRefresh)setRefreshing(false);else setLoading(false);}
@@ -665,6 +668,27 @@ export default function App() {
     catch(err){console.error("Error guardando calendario:",err);setCalendarioClub(antes);alert("Error al guardar el calendario: "+err.message);}
   }
 
+  // ===== Club y ficha del torneo =====
+  // Actualización optimista; si falla, vuelve atrás y el error llega a la pantalla
+  async function guardarClub(datosClub){
+    const antes=club;
+    setClub(c=>({...c,...datosClub}));
+    try{await datos.guardarDatosClub(datosClub);}
+    catch(err){setClub(antes);throw err;}
+  }
+  async function guardarLogoClub(tipo,dataUrl){
+    const antes=club;
+    setClub(c=>({...c,[tipo]:dataUrl}));
+    try{await datos.guardarLogoClub(tipo,dataUrl);}
+    catch(err){setClub(antes);throw err;}
+  }
+  async function guardarFichaTorneo({fecha,ficha}){
+    const tid=activeTId,antes=torneos.find(t=>t.id===tid);
+    setTorneos(prev=>prev.map(t=>t.id===tid?{...t,fecha,ficha}:t));
+    try{await datos.actualizarTorneo(tid,{fecha,ficha});}
+    catch(err){setTorneos(prev=>prev.map(t=>t.id===tid?antes:t));throw err;}
+  }
+
   async function eliminarTorneo(tid){
     // Calcular jugadores afectados ANTES de actualizar el estado
     const jugAfectados={};
@@ -740,12 +764,13 @@ export default function App() {
         <button className={`nav-tab${appView==="torneos"?" on":""}`} onClick={()=>setAppView("torneos")}>🎾 Torneos</button>
         <button className={`nav-tab jug${appView==="jugadores"?" on":""}`} onClick={()=>setAppView("jugadores")}>🏅 Jugadores</button>
         {isAdmin&&<button className={`nav-tab${appView==="calendario"?" on":""}`} onClick={()=>setAppView("calendario")}>📆 Calendario</button>}
+        {isAdmin&&<button className={`nav-tab${appView==="club"?" on":""}`} onClick={()=>setAppView("club")}>🏟️ Club</button>}
         <button className={`nav-tab${appView==="reglamento"?" on":""}`} onClick={()=>setAppView("reglamento")}>📖 Reglamento</button>
       </div>
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
@@ -859,7 +884,7 @@ export default function App() {
         {activeTorneo?.categorias?.map(c=><button key={c.id} className={`cat-tab${activeCId===c.id?" on":""}`} onClick={()=>setActiveCId(c.id)}>{c.nombre}</button>)}
         {isAdmin&&<button className="cat-tab add" onClick={()=>setModal({type:"newC"})}>+ Categoría</button>}
       </div>
-      {!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
+      {subview==="ficha"&&isAdmin?<FichaTorneoView key={activeTId} torneo={activeTorneo} onGuardar={guardarFichaTorneo}/>:!activeCat?<div className="empty"><div className="empty-ico">📂</div><p>Creá o seleccioná una categoria</p></div>:(
         <>
           {subview==="inscripcion"&&activeCat?.modalidad!=="americano_individual"&&<Inscripcion cat={activeCat} onAdd={agregarPareja} onDelete={eliminarPareja} onEditPair={p=>setModal({type:"editPair",pair:p})} onTogglePago={togglePago} isAdmin={isAdmin} jugadoresGlobal={jugadores} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} directorio={armarDirectorio(jugadores,torneos)}/>}
           {subview==="inscripcion"&&activeCat?.modalidad==="americano_individual"&&<InscripcionAmericanoIndividual cat={activeCat} isAdmin={isAdmin} jugadoresGlobal={jugadores} onAgregar={agregarJugadorAmericanoIndividual} onEliminar={eliminarJugadorAmericanoIndividual} onTogglePago={togglePagoAmericanoIndividual} onGenerarFixture={generarFixtureAmericanoIndividual}/>}
