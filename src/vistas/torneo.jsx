@@ -106,7 +106,7 @@ export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, is
   );
 }
 
-export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario="finde", onReproponer, infoLargo }) {
+export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario="finde", onReproponer, infoLargo, onImagen }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   if (!cat.fixtureGenerado) return (
     <div><div className="sec-hdr"><div className="sec-title">Fixture</div></div>
@@ -128,6 +128,7 @@ export function Fixture({ cat, onGenerate, isAdmin, onEditMatch, modoCalendario=
     <div>
       <div className="sec-hdr"><div className="sec-title">Fixture</div>
         <div className="row g8 wrap">
+          {isAdmin&&onImagen&&<button className="btn btn-cyan btn-sm" onClick={onImagen}>📸 Imagen</button>}
           <span className="badge bg">{cat.grupos.length} Zonas</span>
           <span className="badge bb">{cat.partidos.length} Partidos</span>
           <span className="badge by">{cat.partidos.filter(m=>m.done).length} Completados</span>
