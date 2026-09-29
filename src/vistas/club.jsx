@@ -99,7 +99,7 @@ const leerUltimaCopia = () => { try { return localStorage.getItem(KEY_ULTIMA_COP
 const DIAS_AVISO_COPIA = 7;
 
 // Descarga un objeto como archivo .json
-function descargarJSON(obj, nombre) {
+export function descargarJSON(obj, nombre) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(obj)], { type: "application/json" }));
   const a = document.createElement("a");
   a.href = url; a.download = nombre;
@@ -108,9 +108,9 @@ function descargarJSON(obj, nombre) {
 }
 
 const fechaCorta = (iso) => new Date(iso).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" });
-const NOMBRE_COL = { torneos: "Torneos", categorias: "Categorías", parejas: "Parejas", partidos: "Partidos", jugadores: "Jugadores", calendarioClub: "Días del calendario", club: "Datos del club" };
+const NOMBRE_COL = { torneos: "Torneos", categorias: "Categorías", parejas: "Parejas", partidos: "Partidos", jugadores: "Jugadores", calendarioClub: "Días del calendario", club: "Datos del club", accesos: "Cédulas (accesos)" };
 
-function CopiaSeguridad({ onPrepararCopia, onAplicarRestauracion, onRestaurado }) {
+export function CopiaSeguridad({ onPrepararCopia, onAplicarRestauracion, onRestaurado }) {
   const [estado, setEstado] = useState(""); // "" | "trabajando" | "ok" | "error"
   const [detalle, setDetalle] = useState("");
   const [ultima, setUltima] = useState(leerUltimaCopia());
