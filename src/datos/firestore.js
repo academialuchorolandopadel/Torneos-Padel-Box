@@ -9,6 +9,7 @@
 import { BLOQUE_TO_SLOTS } from "../logica/constantes.js";
 import { calcMatchResult } from "../logica/resultados.js";
 import { COLECCIONES_COPIA } from "../logica/copia.js";
+import { VERSION_ESQUEMA, esIdJugador, nuevoIdJugador, parejaAMemoria, parejaABase, categoriaAMemoria, cambiosCategoriaABase, jugadorAMemoria, jugadorABase, clavesDePareja, clavesDeCambiosCategoria } from "../logica/identidad.js";
 
 const fs = () => window.firestore;
 const db = () => window.db;
@@ -21,20 +22,83 @@ export function migratePairRestrictions(p){
   return p;
 }
 
+// ===== Identidad de jugadores (ver logica/identidad.js) =====
+// La base guarda ids; la app trabaja con "la clave del jugador": la cédula
+// real si entró el admin, el id si no. Estos dos mapas los arma cargarTodo()
+// cuando entra el admin (leyendo "accesos", que solo él puede listar).
+let modoAdmin=false;
+const cedulaAId=new Map(), idACedula=new Map();
+
+// id de la base -> clave de memoria
+const aMemoria=(id)=>!id?"":(modoAdmin?(idACedula.get(id)||id):id);
+// clave de memoria -> id de la base (la cédula tiene que tener id: ver asegurarIds)
+const aBase=(clave)=>{
+  if(!clave)return "";
+  if(esIdJugador(clave))return clave;
+  const id=cedulaAId.get(clave);
+  if(!id)throw new Error(`La cédula ${clave} no tiene jugador asignado`);
+  return id;
+};
+
+// Antes de guardar algo con cédulas: a cada cédula nueva le crea su id y su
+// documento en "accesos". Primero pregunta a la base, por si otro dispositivo
+// ya la creó mientras tanto (así una cédula nunca termina con dos ids).
+async function asegurarIds(claves){
+  const {getDoc,setDoc}=fs();
+  for(const c of new Set(claves.filter(Boolean))){
+    if(esIdJugador(c)||cedulaAId.has(c))continue;
+    const snap=await getDoc(ref("accesos",c));
+    let id=snap.exists()?snap.data().jugadorId:null;
+    if(!id){id=nuevoIdJugador();await setDoc(ref("accesos",c),{jugadorId:id});}
+    cedulaAId.set(c,id);idACedula.set(id,c);
+  }
+}
+
+// Login del jugador: consulta UNA cédula. Devuelve su id o null.
+export async function buscarJugadorPorCedula(cedula){
+  const c=(cedula||"").trim();
+  if(!c)return null;
+  const snap=await fs().getDoc(ref("accesos",c));
+  return snap.exists()?(snap.data().jugadorId||null):null;
+}
+
 // ===== Lectura =====
 
 // Trae todo lo necesario para la app y lo devuelve ya armado:
 // torneos -> categorías -> parejas, partidos y llave en rondas.
-export async function cargarTodo(){
+// esAdmin: si es true, lee "accesos" y la app ve las cédulas reales.
+// Devuelve también "esquema": si es menor a 2, los datos todavía tienen las
+// cédulas a la vista y hay que migrarlos (la app no los muestra hasta entonces).
+export async function cargarTodo(esAdmin=false){
   const {collection,getDocs,query,where}=fs();
+  // Club primero: dice en qué formato están los datos
+  let club={},esquema=1;
+  try{
+    const ks=await getDocs(collection(db(),"club"));
+    ks.docs.forEach(d=>{
+      if(d.id==="datos")club={...club,...d.data()};
+      else if(d.id==="logo_color")club.logoColor=d.data().dataUrl||"";
+      else if(d.id==="logo_blanco")club.logoBlanco=d.data().dataUrl||"";
+      else if(d.id==="esquema")esquema=d.data().version||1;
+    });
+  }catch(err){console.error("No se pudieron leer los datos del club:",err);}
+  if(esquema<VERSION_ESQUEMA)return {torneos:[],jugadores:{},calendarioClub:{},club,esquema};
+  // Cédulas: solo para el admin. Si no se pueden leer, se corta con error:
+  // seguir sin ellas haría que al guardar se creen jugadores duplicados.
+  cedulaAId.clear();idACedula.clear();modoAdmin=false;
+  if(esAdmin){
+    const as=await getDocs(collection(db(),"accesos"));
+    as.docs.forEach(d=>{const id=d.data().jugadorId;if(id){cedulaAId.set(d.id,id);idACedula.set(id,d.id);}});
+    modoAdmin=true;
+  }
   const ts=await getDocs(collection(db(),"torneos"));
   const td=ts.docs.map(d=>({id:d.id,...d.data()}));
   const torneos=await Promise.all(td.map(async t=>{
     const cs=await getDocs(query(collection(db(),"categorias"),where("torneoId","==",t.id)));
     const cats=await Promise.all(cs.docs.map(async dc=>{
-      const cat={id:dc.id,...dc.data()};
+      const cat=categoriaAMemoria({id:dc.id,...dc.data()},aMemoria);
       const ps=await getDocs(query(collection(db(),"parejas"),where("categoriaId","==",cat.id)));
-      cat.parejas=ps.docs.map(d=>migratePairRestrictions({id:d.id,...d.data()}));
+      cat.parejas=ps.docs.map(d=>migratePairRestrictions(parejaAMemoria({id:d.id,...d.data()},aMemoria)));
       const ms=await getDocs(query(collection(db(),"partidos"),where("categoriaId","==",cat.id)));
       cat.partidos=ms.docs.map(d=>{const p={id:d.id,...d.data()};if(p.done&&p.winner==null&&p.p1id&&p.p2id)p.winner=calcMatchResult(p);return p;});
       // La llave se guarda como lista plana; acá se rearma en rondas
@@ -51,7 +115,7 @@ export async function cargarTodo(){
     return {...t,categorias:cats};
   }));
   const js=await getDocs(collection(db(),"jugadores"));
-  const jugadores={};js.docs.forEach(d=>{jugadores[d.id]={cedula:d.id,...d.data()};});
+  const jugadores={};js.docs.forEach(d=>{const j=jugadorAMemoria(d.id,d.data(),aMemoria);jugadores[j.cedula]=j;});
   // Calendario del club: un documento por fecha, con los rangos libres de cada cancha.
   // Si no se puede leer (por ejemplo, reglas de seguridad sin esta colección),
   // la app carga igual: solo el calendario queda vacío.
@@ -60,17 +124,7 @@ export async function cargarTodo(){
     const cs=await getDocs(collection(db(),"calendarioClub"));
     cs.docs.forEach(d=>{calendarioClub[d.id]={fecha:d.id,...d.data()};});
   }catch(err){console.error("No se pudo leer el calendario del club:",err);}
-  // Club: los datos en un documento y cada logo en el suyo (las imágenes pesan)
-  let club={};
-  try{
-    const ks=await getDocs(collection(db(),"club"));
-    ks.docs.forEach(d=>{
-      if(d.id==="datos")club={...club,...d.data()};
-      else if(d.id==="logo_color")club.logoColor=d.data().dataUrl||"";
-      else if(d.id==="logo_blanco")club.logoBlanco=d.data().dataUrl||"";
-    });
-  }catch(err){console.error("No se pudieron leer los datos del club:",err);}
-  return {torneos,jugadores,calendarioClub,club};
+  return {torneos,jugadores,calendarioClub,club,esquema};
 }
 
 // ===== Torneos =====
@@ -90,9 +144,10 @@ export async function actualizarTorneo(torneoId,cambios){
 // falla, el torneo ya no existe y lo que quedó no se ve en la app: no se avisa
 // como error, solo queda registrado en la consola.
 export async function eliminarTorneoYAjustarPuntos(torneoId,jugadoresActualizados,restos={}){
+  await asegurarIds(jugadoresActualizados.map(j=>j.cedula));
   const batch=fs().writeBatch(db());
   batch.delete(ref("torneos",torneoId));
-  jugadoresActualizados.forEach(jug=>batch.set(ref("jugadores",jug.cedula),jug));
+  jugadoresActualizados.forEach(jug=>batch.set(ref("jugadores",aBase(jug.cedula)),jugadorABase(jug)));
   await batch.commit();
   const aBorrar=[
     ...(restos.partidos||[]).map(id=>["partidos",id]),
@@ -114,11 +169,13 @@ export async function eliminarTorneoYAjustarPuntos(torneoId,jugadoresActualizado
 // propia colección) y con la llave aplanada.
 export async function guardarCategoria(cat,torneoId){
   const{parejas,partidos,knockoutRounds:kr,...rest}=cat;
-  await fs().setDoc(ref("categorias",cat.id),{...rest,knockoutMatchesFlat:(kr||[]).flat(),torneoId});
+  await asegurarIds(clavesDeCambiosCategoria(rest));
+  await fs().setDoc(ref("categorias",cat.id),{...cambiosCategoriaABase(rest,aBase),knockoutMatchesFlat:(kr||[]).flat(),torneoId});
 }
 
 export async function actualizarCategoria(catId,cambios){
-  await fs().updateDoc(ref("categorias",catId),cambios);
+  await asegurarIds(clavesDeCambiosCategoria(cambios));
+  await fs().updateDoc(ref("categorias",catId),cambiosCategoriaABase(cambios,aBase));
 }
 
 // La llave se guarda aplanada dentro del documento de la categoría.
@@ -131,7 +188,8 @@ export async function guardarLlave(catId,rondas,marcarGenerada=false){
 
 export async function guardarPareja(pareja,catId){
   // Firestore rechaza campos undefined: se limpian antes de guardar
-  const ts={...pareja,categoriaId:catId};delete ts.restricciones;if(ts.j1===undefined)delete ts.j1;if(ts.j2===undefined)delete ts.j2;
+  await asegurarIds(clavesDePareja(pareja));
+  const ts=parejaABase({...pareja,categoriaId:catId},aBase);delete ts.restricciones;if(ts.j1===undefined)delete ts.j1;if(ts.j2===undefined)delete ts.j2;
   await fs().setDoc(ref("parejas",pareja.id),ts);
 }
 
@@ -160,23 +218,28 @@ export async function guardarResultadoZona(partidoId,cambios,partidosDependiente
 
 // ===== Jugadores y ranking =====
 
+// "cedula" acá es la clave de memoria del jugador (ver arriba)
 export async function guardarJugador(cedula,jugador){
-  await fs().setDoc(ref("jugadores",cedula),jugador);
+  await asegurarIds([cedula]);
+  await fs().setDoc(ref("jugadores",aBase(cedula)),jugadorABase(jugador));
 }
 
 export async function actualizarJugador(cedula,cambios){
-  await fs().updateDoc(ref("jugadores",cedula),cambios);
+  await fs().updateDoc(ref("jugadores",aBase(cedula)),jugadorABase(cambios));
 }
 
+// Borra al jugador del ranking. Su acceso (cédula -> id) queda: si sigue en
+// alguna pareja, tiene que poder seguir entrando.
 export async function eliminarJugador(cedula){
-  await fs().deleteDoc(ref("jugadores",cedula));
+  await fs().deleteDoc(ref("jugadores",aBase(cedula)));
 }
 
 // Atómico: guarda los jugadores cuyos puntos cambiaron y marca la categoría
 // como "puntos otorgados". entradas = [[cedula, jugador], ...]
 export async function guardarPuntos(catId,entradas){
+  await asegurarIds(entradas.map(([cedula])=>cedula));
   const batch=fs().writeBatch(db());
-  entradas.forEach(([cedula,jugador])=>batch.set(ref("jugadores",cedula),jugador));
+  entradas.forEach(([cedula,jugador])=>batch.set(ref("jugadores",aBase(cedula)),jugadorABase(jugador)));
   batch.update(ref("categorias",catId),{pointsAwarded:true});
   await batch.commit();
 }
