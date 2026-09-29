@@ -79,16 +79,16 @@ export function Inscripcion({ cat, onAdd, onDelete, onEditPair, onTogglePago, is
       {cat.parejas.length===0?<div className="empty"><div className="empty-ico">👥</div><p>No hay parejas inscriptas aún</p></div>:(
         <div className="card" style={{overflowX:"auto"}}>
           <table className="tbl">
-            <thead><tr><th>#</th><th>Pareja</th><th>J1</th><th>CI</th><th>Pago J1</th><th>J2</th><th>CI</th><th>Pago J2</th><th>Horarios</th><th>Zona</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Pareja</th><th>J1</th>{isAdmin&&<th>CI</th>}<th>Pago J1</th><th>J2</th>{isAdmin&&<th>CI</th>}<th>Pago J2</th><th>Horarios</th><th>Zona</th><th></th></tr></thead>
             <tbody>
               {cat.parejas.map((p,i)=>(
                 <tr key={p.id}>
                   <td style={{fontFamily:"Oswald",fontWeight:700,color:"var(--muted)",fontSize:13}}>{i+1}</td>
                   <td className="em">{p.nombre}</td><td>{p.j1nombre||p.j1}</td>
-                  <td style={{fontSize:11,color:"var(--muted)"}}>{p.j1cedula||"—"}</td>
+                  {isAdmin&&<td style={{fontSize:11,color:"var(--muted)"}}>{p.j1cedula||"—"}</td>}
                   <td><button className={`pago-pill ${p.pagoJ1?"pago-ok":"pago-no"}`} onClick={()=>onTogglePago(p.id,"pagoJ1")} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>{p.pagoJ1?"✓ Pagado":"✗ Pendiente"}</button></td>
                   <td>{p.j2nombre||p.j2}</td>
-                  <td style={{fontSize:11,color:"var(--muted)"}}>{p.j2cedula||"—"}</td>
+                  {isAdmin&&<td style={{fontSize:11,color:"var(--muted)"}}>{p.j2cedula||"—"}</td>}
                   <td><button className={`pago-pill ${p.pagoJ2?"pago-ok":"pago-no"}`} onClick={()=>onTogglePago(p.id,"pagoJ2")} disabled={!isAdmin} style={{opacity:isAdmin?1:0.4,cursor:isAdmin?'pointer':'not-allowed'}}>{p.pagoJ2?"✓ Pagado":"✗ Pendiente"}</button></td>
                   <td>{formatSlots(p)}</td>
                   <td>{p.grupoId?<span className="badge bg">{gName[p.grupoId]||"?"}</span>:<span className="badge bx">—</span>}</td>
