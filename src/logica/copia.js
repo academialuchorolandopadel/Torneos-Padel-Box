@@ -8,7 +8,12 @@
 
 // Colecciones que forman la base de la app. Si se agrega una colección nueva,
 // hay que sumarla acá o quedará fuera de la copia.
-export const COLECCIONES_COPIA = ["torneos", "categorias", "parejas", "partidos", "jugadores", "calendarioClub", "club"];
+// "accesos" (cédula -> jugador) existe desde la v52: la copia la necesita para
+// que, al restaurar, los jugadores puedan seguir entrando con su cédula.
+export const COLECCIONES_COPIA = ["torneos", "categorias", "parejas", "partidos", "jugadores", "calendarioClub", "club", "accesos"];
+
+// Colecciones que las copias viejas (hasta v51) no tienen: se toman como vacías
+const COLECCIONES_NUEVAS = ["accesos"];
 
 // colecciones = { torneos: [{id, datos}], ... }
 export function armarCopia(colecciones, version, fechaISO) {
@@ -52,6 +57,7 @@ export function validarCopia(copia) {
   const cols = copia.colecciones;
   if (!cols || typeof cols !== "object") return { ok: false, error: "La copia no tiene colecciones." };
   for (const c of COLECCIONES_COPIA) {
+    if (cols[c] === undefined && COLECCIONES_NUEVAS.includes(c)) continue;
     if (!Array.isArray(cols[c])) return { ok: false, error: `A la copia le falta la colección "${c}". No se restaura una copia incompleta.` };
     const ids = new Set();
     for (const d of cols[c]) {
