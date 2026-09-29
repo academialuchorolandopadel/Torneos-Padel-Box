@@ -24,6 +24,8 @@ import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesio
 import { armarCopia } from "./logica/copia.js";
 import { BotonConfirmar } from "./vistas/confirmar.jsx";
 import { VERSION } from "./version.js";
+import { VERSION_ESQUEMA } from "./logica/identidad.js";
+import { Mantenimiento, MigracionView } from "./vistas/migracion.jsx";
 
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
@@ -59,16 +61,19 @@ export default function App() {
   const [showPinModal,setShowPinModal]=useState(false);
   const [showPlayerLogin,setShowPlayerLogin]=useState(false);
   const [playerLoginError,setPlayerLoginError]=useState("");
+  // Clave del jugador que entró: su id (desde v52 el navegador no guarda la cédula)
   const [playerCedula,setPlayerCedula]=useState(null);
+  const [authListo,setAuthListo]=useState(false);
+  const [esquema,setEsquema]=useState(VERSION_ESQUEMA);
   const [publicRanking,setPublicRanking]=useState(false);
   const [calendarioClub,setCalendarioClub]=useState({});
   const [club,setClub]=useState({});
 
   useEffect(()=>{
     // Sesion admin: Firebase Auth (persiste entre recargas y dispositivos)
-    const unsub=escucharSesionAdmin(setIsAdmin);
-    // Sesion jugador: cedula guardada en el navegador
-    const sj=leerSesionJugador();if(sj.activa){setIsPlayer(true);setPlayerCedula(sj.cedula);}
+    const unsub=escucharSesionAdmin(v=>{setIsAdmin(v);setAuthListo(true);});
+    // Sesion jugador: id del jugador guardado en el navegador
+    const sj=leerSesionJugador();if(sj.activa){setIsPlayer(true);setPlayerCedula(sj.jugadorId);}
     return unsub;
   },[]);
 
@@ -76,13 +81,16 @@ export default function App() {
   const loadData=async(isRefresh=false)=>{
     try {
       if(isRefresh)setRefreshing(true);else setLoading(true);
-      const {torneos:tc,jugadores:jugs,calendarioClub:cal,club:cl}=await datos.cargarTodo();
-      setTorneos(tc);setCalendarioClub(cal);setClub(cl||{});
+      const {torneos:tc,jugadores:jugs,calendarioClub:cal,club:cl,esquema:esq}=await datos.cargarTodo(isAdmin);
+      setTorneos(tc);setCalendarioClub(cal);setClub(cl||{});setEsquema(esq);
       setJugadores(jugs);setError(null);
       } catch(err){console.error(err);setError(err.message);}
       finally{if(isRefresh)setRefreshing(false);else setLoading(false);}
   };
-  useEffect(()=>{loadData();},[]);
+  // Se carga cuando se sabe si es admin, y se recarga cuando entra o sale:
+  // el admin ve las cédulas reales; los demás, solo ids. La recarga muestra
+  // la pantalla de carga para que nadie actúe sobre datos del modo anterior.
+  useEffect(()=>{if(authListo)loadData();},[authListo,isAdmin]);
 
   // Pie con la versión: se muestra en todas las pantallas
   const pie=<div className="pie-version">PadelBox {VERSION}</div>;
@@ -92,7 +100,15 @@ export default function App() {
   const allMatches=activeTorneo?.categorias?.flatMap(c=>[...(c.partidos||[]),...(c.knockoutRounds?.flat()||[])])||[];
 
   const getAllCedulas=()=>{const s=new Set();torneos.forEach(t=>t.categorias?.forEach(c=>c.parejas?.forEach(p=>{if(p.j1cedula)s.add(p.j1cedula);if(p.j2cedula)s.add(p.j2cedula);})));return s;};
-  const handlePlayerLogin=(cedula)=>{if(getAllCedulas().has(cedula)){guardarSesionJugador(cedula);setIsPlayer(true);setPlayerCedula(cedula);setShowPlayerLogin(false);setPlayerLoginError("");}else setPlayerLoginError("Cédula no encontrada en el torneo");};
+  // Login con cédula: se consulta esa sola cédula en la base y se trabaja con
+  // el id que devuelve (en memoria, las parejas tienen ids para quien no es admin).
+  const handlePlayerLogin=async(cedula)=>{
+    try{
+      const id=await datos.buscarJugadorPorCedula(cedula);
+      if(id&&getAllCedulas().has(id)){guardarSesionJugador(id);setIsPlayer(true);setPlayerCedula(id);setShowPlayerLogin(false);setPlayerLoginError("");}
+      else setPlayerLoginError("Cédula no encontrada en el torneo");
+    }catch(err){console.error(err);setPlayerLoginError("No se pudo verificar la cédula. Revisá tu conexión.");}
+  };
   const handleLogoutAdmin=async()=>{try{await cerrarSesionAdmin();}catch(err){console.error(err);}setIsAdmin(false);};
   const handleLogoutPlayer=()=>{borrarSesionJugador();setIsPlayer(false);setPlayerCedula(null);};
 
@@ -737,6 +753,22 @@ export default function App() {
 
   if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div>{pie}</div></>);
   if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div>{pie}</div></>);
+
+  // Datos en formato viejo (cédulas a la vista): nadie los ve hasta migrar
+  if(esquema<VERSION_ESQUEMA){
+    return(<><style>{CSS}</style><div className="app">
+      <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
+        {isAdmin&&<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:"auto"}}>🔓 Admin</button>}
+      </header>
+      <div className="main">
+        {isAdmin
+          ?<MigracionView onPrepararCopia={prepararCopia} onAplicarRestauracion={datos.aplicarRestauracion} onTerminado={()=>loadData()}/>
+          :<Mantenimiento onAdmin={()=>setShowPinModal(true)}/>}
+      </div>
+      {pie}
+      {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
+    </div></>);
+  }
 
   if(!isAdmin&&!isPlayer){
     if(publicRanking)return(<><style>{CSS}</style><div className="app">
