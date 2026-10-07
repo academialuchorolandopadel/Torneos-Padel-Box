@@ -1,12 +1,12 @@
 // Calendario por fechas (torneo largo): turnos libres del club y
-// disponibilidad semanal de las parejas.
+// disponibilidad semanal de las parejas y de los jugadores.
 // Funciones puras: reciben datos y devuelven datos. No tocan Firebase ni React.
 //
 // Formato de los datos (pensado para Firestore, que NO acepta listas dentro
 // de listas: por eso los rangos son objetos y no pares [desde, hasta]):
 //   rango:            { desde: "18:00", hasta: "23:00" }
 //   día del club:     { fecha: "2026-10-14", canchas: { "BOX 1": [rango, ...], ... } }
-//   disponibilidad:   { modo: "libre" | "solo" | "no", dias: { "1": [rango, ...], ... }, }
+//   disponibilidad:   { modo: "libre" | "solo" | "no" | "inicio", dias: { "1": [rango, ...], ... }, }
 //                     días de la semana como en JavaScript: "0" domingo ... "6" sábado
 //
 // Por dentro las horas se manejan en minutos desde las 00:00 ("18:30" = 1110).
@@ -69,13 +69,16 @@ export function capacidadDia(diaClub, duracion = DURACION_PARTIDO) {
   return Object.values(diaClub.canchas || {}).reduce((n, rangos) => n + capacidadPartidos(rangos, duracion), 0);
 }
 
-// ---- Disponibilidad de parejas ----
+// ---- Disponibilidad de parejas y jugadores ----
 export const DISPONIBILIDAD_LIBRE = { modo: "libre", dias: {} };
 
-// ¿La pareja puede jugar un partido entre "desde" y "hasta" de esa fecha?
-//  - "libre": puede siempre
-//  - "solo":  el partido tiene que caer ENTERO dentro de alguno de sus rangos de ese día
-//  - "no":    el partido no puede tocar ninguno de sus rangos de ese día
+// ¿Puede jugar un partido entre "desde" y "hasta" de esa fecha?
+//  - "libre":  puede siempre
+//  - "solo":   el partido tiene que caer ENTERO dentro de alguno de sus rangos de ese día
+//  - "no":     el partido no puede tocar ninguno de sus rangos de ese día
+//  - "inicio": el partido tiene que EMPEZAR dentro de alguno de sus rangos de ese
+//              día, aunque termine después (franjas del perfil de jugador: con
+//              "13:00 a 18:00" puede arrancar hasta las 17:30)
 export function parejaPuede(disp, fechaISO, desde, hasta) {
   return parejaPuedeEnDia(disp, diaDeSemana(fechaISO), desde, hasta);
 }
@@ -85,19 +88,21 @@ export function parejaPuedeEnDia(disp, diaSemana, desde, hasta) {
   if (!disp || !disp.modo || disp.modo === "libre") return true;
   const rangos = normalizarRangos(disp.dias?.[String(diaSemana)] || []);
   const a = aMin(desde), b = aMin(hasta);
+  if (disp.modo === "inicio") return rangos.some(r => aMin(r.desde) <= a && a < aMin(r.hasta));
   if (disp.modo === "solo") return rangos.some(r => aMin(r.desde) <= a && aMin(r.hasta) >= b);
   return !rangos.some(r => aMin(r.desde) < b && aMin(r.hasta) > a);
 }
 
 // Texto corto para mostrar en tablas: "Solo: Lun 19:00-23:00 · Mié 20:00-23:00"
+const PREFIJO_MODO = { solo: "Solo: ", no: "No puede: ", inicio: "Empieza: " };
 export function resumenDisponibilidad(disp) {
   if (!disp || !disp.modo || disp.modo === "libre") return "Sin restricciones";
   const partes = ORDEN_SEMANA
     .map(d => [d, normalizarRangos(disp.dias?.[String(d)] || [])])
     .filter(([, rs]) => rs.length)
     .map(([d, rs]) => `${NOMBRES_DIA[d].slice(0, 3)} ${rs.map(r => `${r.desde}-${r.hasta}`).join(", ")}`);
-  if (!partes.length) return disp.modo === "solo" ? "Solo: sin días cargados" : "Sin restricciones";
-  return (disp.modo === "solo" ? "Solo: " : "No puede: ") + partes.join(" · ");
+  if (!partes.length) return disp.modo === "no" ? "Sin restricciones" : (PREFIJO_MODO[disp.modo] || "") + "sin días cargados";
+  return (PREFIJO_MODO[disp.modo] || "") + partes.join(" · ");
 }
 
 // ---- Compatibilidad entre parejas (para armar zonas) ----
