@@ -10,10 +10,13 @@
 // hay que sumarla acá o quedará fuera de la copia.
 // "accesos" (cédula -> jugador) existe desde la v52: la copia la necesita para
 // que, al restaurar, los jugadores puedan seguir entrando con su cédula.
-export const COLECCIONES_COPIA = ["torneos", "categorias", "parejas", "partidos", "jugadores", "calendarioClub", "club", "accesos"];
+// "perfiles" y "contactos" (perfil y WhatsApp de cada jugador) existen desde la v53.
+// OJO: restaurar una copia anterior a la v53 borra todos los perfiles y
+// WhatsApp, porque la copia no los tiene (restaurar deja la base igual a la copia).
+export const COLECCIONES_COPIA = ["torneos", "categorias", "parejas", "partidos", "jugadores", "calendarioClub", "club", "accesos", "perfiles", "contactos"];
 
-// Colecciones que las copias viejas (hasta v51) no tienen: se toman como vacías
-const COLECCIONES_NUEVAS = ["accesos"];
+// Colecciones que las copias viejas no tienen: se toman como vacías
+const COLECCIONES_NUEVAS = ["accesos", "perfiles", "contactos"];
 
 // colecciones = { torneos: [{id, datos}], ... }
 export function armarCopia(colecciones, version, fechaISO) {
@@ -32,7 +35,7 @@ export function nombreArchivoCopia(fecha) {
 // Texto corto para confirmar qué se guardó
 export function textoResumen(resumen) {
   const r = resumen || {};
-  return `${r.torneos || 0} torneos · ${r.categorias || 0} categorías · ${r.parejas || 0} parejas · ${r.partidos || 0} partidos · ${r.jugadores || 0} jugadores`;
+  return `${r.torneos || 0} torneos · ${r.categorias || 0} categorías · ${r.parejas || 0} parejas · ${r.partidos || 0} partidos · ${r.jugadores || 0} jugadores · ${r.perfiles || 0} perfiles`;
 }
 
 // ===== Restauración =====
