@@ -26,6 +26,7 @@ import { BotonConfirmar } from "./vistas/confirmar.jsx";
 import { VERSION } from "./version.js";
 import { VERSION_ESQUEMA } from "./logica/identidad.js";
 import { Mantenimiento, MigracionView } from "./vistas/migracion.jsx";
+import { MiPerfil, PerfilesAdmin } from "./vistas/perfil.jsx";
 
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
@@ -102,15 +103,17 @@ export default function App() {
   const getAllCedulas=()=>{const s=new Set();torneos.forEach(t=>t.categorias?.forEach(c=>c.parejas?.forEach(p=>{if(p.j1cedula)s.add(p.j1cedula);if(p.j2cedula)s.add(p.j2cedula);})));return s;};
   // Login con cédula: se consulta esa sola cédula en la base y se trabaja con
   // el id que devuelve (en memoria, las parejas tienen ids para quien no es admin).
+  // Entra quien está inscripto en algún torneo o tiene ficha en el ranking
+  // (desde v53: así un jugador cargado a mano puede completar su perfil).
   const handlePlayerLogin=async(cedula)=>{
     try{
       const id=await datos.buscarJugadorPorCedula(cedula);
-      if(id&&getAllCedulas().has(id)){guardarSesionJugador(id);setIsPlayer(true);setPlayerCedula(id);setShowPlayerLogin(false);setPlayerLoginError("");}
-      else setPlayerLoginError("Cédula no encontrada en el torneo");
+      if(id&&(getAllCedulas().has(id)||jugadores[id])){guardarSesionJugador(id);setIsPlayer(true);setPlayerCedula(id);setShowPlayerLogin(false);setPlayerLoginError("");}
+      else setPlayerLoginError("Cédula no encontrada. Pedile al organizador que te cargue en la app.");
     }catch(err){console.error(err);setPlayerLoginError("No se pudo verificar la cédula. Revisá tu conexión.");}
   };
   const handleLogoutAdmin=async()=>{try{await cerrarSesionAdmin();}catch(err){console.error(err);}setIsAdmin(false);};
-  const handleLogoutPlayer=()=>{borrarSesionJugador();setIsPlayer(false);setPlayerCedula(null);};
+  const handleLogoutPlayer=()=>{borrarSesionJugador();setIsPlayer(false);setPlayerCedula(null);setAppView("torneos");};
 
   function updateCat(catId,fn){setTorneos(prev=>prev.map(t=>t.id===activeTId?{...t,categorias:t.categorias.map(c=>c.id===catId?fn(c):c)}:t));}
 
@@ -712,6 +715,20 @@ export default function App() {
     catch(err){setTorneos(prev=>prev.map(t=>t.id===tid?antes:t));throw err;}
   }
 
+  // ===== Perfil del jugador (partidos por nivel) =====
+  // El jugador lee y guarda solo el suyo; el admin ve todos (ver datos/firestore.js)
+  const cargarMiPerfil=()=>datos.cargarPerfil(playerCedula);
+  const guardarMiPerfil=(perfil,whatsapp)=>datos.guardarPerfil(playerCedula,perfil,whatsapp);
+  // Nombre del jugador que entró: del ranking, o de sus inscripciones si no tiene ficha
+  const nombreJugadorSesion=()=>{
+    if(jugadores[playerCedula]?.nombre)return jugadores[playerCedula].nombre;
+    for(const t of torneos)for(const c of t.categorias||[])for(const p of c.parejas||[]){
+      if(p.j1cedula===playerCedula)return p.j1nombre||p.j1||"";
+      if(p.j2cedula===playerCedula)return p.j2nombre||p.j2||"";
+    }
+    return "";
+  };
+
   // Copia de seguridad: lee la base tal cual está y arma el archivo (la descarga la hace la pantalla)
   async function prepararCopia(){
     const colecciones=await datos.exportarTodo();
@@ -810,6 +827,8 @@ export default function App() {
       <div className="nav-tabs" style={{marginLeft:"auto"}}>
         <button className={`nav-tab${appView==="torneos"?" on":""}`} onClick={()=>setAppView("torneos")}>🎾 Torneos</button>
         <button className={`nav-tab jug${appView==="jugadores"?" on":""}`} onClick={()=>setAppView("jugadores")}>🏅 Jugadores</button>
+        {isPlayer&&!isAdmin&&<button className={`nav-tab${appView==="perfil"?" on":""}`} onClick={()=>setAppView("perfil")}>👤 Mi perfil</button>}
+        {isAdmin&&<button className={`nav-tab${appView==="perfiles"?" on":""}`} onClick={()=>setAppView("perfiles")}>🎯 Perfiles</button>}
         {isAdmin&&<button className={`nav-tab${appView==="calendario"?" on":""}`} onClick={()=>setAppView("calendario")}>📆 Calendario</button>}
         {isAdmin&&<button className={`nav-tab${appView==="club"?" on":""}`} onClick={()=>setAppView("club")}>🏟️ Club</button>}
         <button className={`nav-tab${appView==="reglamento"?" on":""}`} onClick={()=>setAppView("reglamento")}>📖 Reglamento</button>
@@ -817,7 +836,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub} onPrepararCopia={prepararCopia} onAplicarRestauracion={datos.aplicarRestauracion} onRestaurado={()=>loadData(true)}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="perfil"&&isPlayer&&!isAdmin?<MiPerfil key={playerCedula} nombre={nombreJugadorSesion()} categoriaOficial={jugadores[playerCedula]?.categoria||null} generoFicha={jugadores[playerCedula]?.genero||null} onCargar={cargarMiPerfil} onGuardar={guardarMiPerfil}/>:appView==="perfiles"&&isAdmin?<PerfilesAdmin jugadores={jugadores} torneos={torneos} onCargar={datos.cargarPerfilesAdmin} onEliminar={datos.eliminarPerfil} onUpdateCategoria={actualizarCategoriaJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub} onPrepararCopia={prepararCopia} onAplicarRestauracion={datos.aplicarRestauracion} onRestaurado={()=>loadData(true)}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
