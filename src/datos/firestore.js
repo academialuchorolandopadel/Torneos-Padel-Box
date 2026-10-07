@@ -244,6 +244,47 @@ export async function guardarPuntos(catId,entradas){
   await batch.commit();
 }
 
+// ===== Perfil del jugador (partidos por nivel, ver logica/perfil.js) =====
+// "perfiles": uno por jugador, con su id como nombre del documento. Cualquiera
+//   puede leer UNO si conoce el id; listarlos todos, solo el admin.
+// "contactos": el WhatsApp. El jugador lo escribe, pero solo el admin lo lee.
+// Los dos se guardan con el id del jugador, nunca con la cédula.
+
+// Devuelve el perfil guardado o null si todavía no tiene
+export async function cargarPerfil(clave){
+  const snap=await fs().getDoc(ref("perfiles",aBase(clave)));
+  return snap.exists()?snap.data():null;
+}
+
+// Guarda el perfil entero (respuestas, lado, género, disponibilidad, vigencia).
+// Si "whatsapp" viene vacío, el contacto que ya estaba no se toca.
+// Primero el WhatsApp: si falla, el perfil no queda guardado sin forma de contacto.
+export async function guardarPerfil(clave,perfil,whatsapp){
+  const id=aBase(clave);
+  if(whatsapp)await fs().setDoc(ref("contactos",id),{whatsapp});
+  await fs().setDoc(ref("perfiles",id),perfil);
+}
+
+// Solo admin: todos los perfiles con su WhatsApp, y la clave de memoria del
+// jugador (la cédula real, porque entró el admin). También aparecen los
+// jugadores que cargaron el WhatsApp pero no llegaron a guardar el perfil.
+export async function cargarPerfilesAdmin(){
+  const {collection,getDocs}=fs();
+  const [ps,cs]=await Promise.all([getDocs(collection(db(),"perfiles")),getDocs(collection(db(),"contactos"))]);
+  const perfiles=new Map(ps.docs.map(d=>[d.id,d.data()]));
+  const contactos=new Map(cs.docs.map(d=>[d.id,d.data().whatsapp||null]));
+  const ids=new Set([...perfiles.keys(),...contactos.keys()]);
+  return [...ids].map(id=>({id,clave:aMemoria(id),perfil:perfiles.get(id)||null,whatsapp:contactos.get(id)||null}));
+}
+
+// Solo admin: borra el perfil y el WhatsApp de un jugador (por ejemplo, una ficha suelta)
+export async function eliminarPerfil(id){
+  const batch=fs().writeBatch(db());
+  batch.delete(ref("perfiles",id));
+  batch.delete(ref("contactos",id));
+  await batch.commit();
+}
+
 // ===== Calendario del club (torneos largos) =====
 
 // Guarda varios días de una vez (atómico). Un día sin rangos se borra.
