@@ -3,6 +3,8 @@
 //    WhatsApp, filtro de nivel y franjas por día).
 //  - PerfilesAdmin: el organizador ve todos los perfiles, el nivel que da el
 //    filtro, los que hay que validar o revisar, y el WhatsApp de cada uno.
+//    Tiene una segunda solapa, "Partidos posibles", con los grupos de 4 que
+//    arma logica/partidos.js y el mensaje listo para mandar por WhatsApp.
 // La lógica (tabla de lectura, franjas, vigencia) vive en logica/perfil.js.
 import React, { useState, useEffect } from "react";
 import { CAT_LABELS } from "../logica/constantes.js";
@@ -11,6 +13,7 @@ import { fechaHoyISO, formatearFecha } from "../logica/fechas.js";
 import { PREGUNTAS, FRANJAS, calcularNivel, categoriasParaArmar, difiereDeOficial, franjasADisponibilidad, disponibilidadAFranjas,
   nuevaVigencia, estaVigente, normalizarWhatsapp, validarPerfil } from "../logica/perfil.js";
 import { BotonConfirmar } from "./confirmar.jsx";
+import { separarAptos, sugerirPartidos, mensajeInvitacion, enlaceWhatsapp } from "../logica/partidos.js";
 
 const LADOS = [["drive", "Drive"], ["reves", "Revés"], ["ambos", "Los dos, cómodo en ambos"]];
 const GENEROS = [["M", "Caballeros"], ["F", "Damas"]];
@@ -201,6 +204,7 @@ export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpda
   const [filas, setFilas] = useState(null);
   const [error, setError] = useState("");
   const [abierto, setAbierto] = useState(null);
+  const [solapa, setSolapa] = useState("perfiles");
   const hoy = fechaHoyISO();
 
   const cargar = async () => {
@@ -273,6 +277,24 @@ export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpda
     );
   };
 
+  const solapas = (
+    <div className="cat-tabs" style={{ marginBottom: 16 }}>
+      <button className={`cat-tab${solapa === "perfiles" ? " on" : ""}`} onClick={() => setSolapa("perfiles")}>Perfiles</button>
+      <button className={`cat-tab${solapa === "partidos" ? " on" : ""}`} onClick={() => setSolapa("partidos")}>Partidos posibles</button>
+    </div>
+  );
+
+  if (solapa === "partidos") return (
+    <div>
+      <div className="sec-hdr">
+        <div className="sec-title">Partidos posibles</div>
+        <button className="btn btn-ghost btn-sm" onClick={cargar}>🔄 Actualizar</button>
+      </div>
+      {solapas}
+      <PartidosPosibles filas={filas} jugadores={jugadores} hoy={hoy} nombreDe={c => jugadores[c]?.nombre || nombreDesdeInscripciones(torneos, c)} />
+    </div>
+  );
+
   return (
     <div>
       <div className="sec-hdr">
@@ -282,6 +304,7 @@ export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpda
           <button className="btn btn-ghost btn-sm" onClick={cargar}>🔄 Actualizar</button>
         </div>
       </div>
+      {solapas}
       {datos.length === 0 && <div className="empty"><div className="empty-ico">👤</div><p>Todavía nadie completó su perfil.</p><p style={{ fontSize: 12, marginTop: 8 }}>Los jugadores lo completan desde "Mi perfil", después de entrar con su cédula.</p></div>}
       {GRUPOS.map(([id, titulo, ayuda]) => {
         const lista = datos.filter(d => d.grupo === id);
@@ -297,6 +320,79 @@ export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpda
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ================= Partidos posibles (admin) =================
+// Sugiere partidos de 4 a partir de los perfiles. No mira las canchas: el
+// organizador chequea en Reva antes de confirmar. Lo que se marca como
+// "enviado" queda solo en esta pantalla (se pierde al actualizar).
+
+function PartidosPosibles({ filas, jugadores, hoy, nombreDe }) {
+  const [enviados, setEnviados] = useState({});
+  const [verFuera, setVerFuera] = useState(false);
+  const { aptos, fuera } = separarAptos(filas, jugadores, hoy, nombreDe);
+  const { sugerencias, sinPartido } = sugerirPartidos(aptos, hoy);
+  const quedanAfuera = [...sinPartido, ...fuera].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const marcar = (clave) => setEnviados(e => ({ ...e, [clave]: true }));
+
+  return (
+    <div>
+      <div className="alert alert-warn">Antes de escribirles, fijate en Reva que haya cancha libre en ese horario. La app todavía no mira las canchas.</div>
+
+      {sugerencias.length === 0 && <div className="empty" style={{ paddingTop: 24 }}><div className="empty-ico">🎾</div>
+        <p>Por ahora no hay 4 jugadores que coincidan.</p>
+        <p style={{ fontSize: 12, marginTop: 8 }}>Hacen falta 4 del mismo género, de categorías seguidas, con lados compatibles y un horario en común. Abajo está el motivo de cada uno.</p>
+      </div>}
+
+      {sugerencias.map((s, i) => {
+        const p = s.propuesta;
+        const clavePartido = s.jugadores.map(j => j.id).join("-");
+        return (
+          <div key={clavePartido} className="card mb16">
+            <div className="row wrap g8 just-between mb8">
+              <div style={{ fontFamily: "Oswald", fontSize: 20, fontWeight: 600, letterSpacing: 1 }}>{p.nombreDia} {formatearFecha(p.fecha)} · {p.hora}</div>
+              <div className="row g8">
+                <span className="badge by">{textoRango(s.min, s.max)}</span>
+                <span className="badge bx">{GENERO_TXT[s.genero]}</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+              {s.totalHorarios === 1 ? "Es el único horario en que coinciden los 4." : `Coinciden en ${s.totalHorarios} horarios de la semana.`}
+              {s.alternativas.length > 0 && ` Otras opciones: ${s.alternativas.map(a => `${a.nombreDia} ${a.hora}`).join(", ")}.`}
+            </div>
+            {s.jugadores.map(j => {
+              const clave = clavePartido + "|" + j.id;
+              return (
+                <div key={j.id} className="rank-row" style={{ cursor: "default", padding: "10px 12px" }}>
+                  <div className="f1">
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{j.nombre}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{LADO_TXT[j.lado]} · {j.oficial ? `${CAT_LABELS[j.oficial]} oficial` : `Filtro: ${textoRango(j.min, j.max)}`}</div>
+                  </div>
+                  {j.whatsapp
+                    ? <a className={`btn btn-xs ${enviados[clave] ? "btn-ghost" : "btn-cyan"}`} style={{ textDecoration: "none" }} href={enlaceWhatsapp(j.whatsapp, mensajeInvitacion(s, j))} target="_blank" rel="noopener noreferrer" onClick={() => marcar(clave)}>{enviados[clave] ? "✓ Enviado" : "Invitar"}</a>
+                    : <span style={{ fontSize: 11, color: "var(--muted)" }}>Sin WhatsApp</span>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      {quedanAfuera.length > 0 && <div className="card mb16">
+        <div className="row just-between">
+          <div className="card-title" style={{ margin: 0 }}>Sin partido esta vez</div>
+          <button className="btn btn-ghost btn-xs" onClick={() => setVerFuera(v => !v)}>{verFuera ? "Ocultar" : `Ver ${quedanAfuera.length}`}</button>
+        </div>
+        {verFuera && <div style={{ marginTop: 12 }}>
+          {quedanAfuera.map(f => (
+            <div key={f.id} className="row just-between" style={{ fontSize: 12, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+              <span>{f.nombre}</span><span style={{ color: "var(--muted)", textAlign: "right" }}>{f.motivo}</span>
+            </div>
+          ))}
+        </div>}
+      </div>}
     </div>
   );
 }
