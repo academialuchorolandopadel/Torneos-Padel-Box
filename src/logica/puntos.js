@@ -109,3 +109,30 @@ export function aplicarPuntos({jugadores,asignaciones,torneo,cat,hoy}){
   }
   return {jugadores:nxt,modificadas:[...modificadas],ptsFallen};
 }
+
+// Quita los puntos que una categoría le dio a cada jugador: borra sus
+// entradas del historial y resta esos puntos del total.
+// Sirve para "abrir" una llave cerrada cuando hay que rehacerla (por ejemplo,
+// si cambió quién clasificó). Después se vuelven a otorgar.
+// Nota: si al otorgar se reemplazaron puntos de la edición anterior del mismo
+// torneo, esos no vuelven: al otorgar de nuevo, el resultado final es el mismo.
+export function quitarPuntos({ jugadores, torneoId, catId }) {
+  const nxt = { ...jugadores };
+  const modificadas = [];
+  let total = 0;
+  const esDeLaCategoria = (h) => h.torneoId === torneoId && h.catId === catId;
+  Object.entries(jugadores).forEach(([clave, j]) => {
+    const historial = j.historial || [];
+    const quitar = historial.filter(esDeLaCategoria);
+    if (!quitar.length) return;
+    const pts = quitar.reduce((s, h) => s + (h.pts || 0), 0);
+    nxt[clave] = { ...j, totalPts: (j.totalPts || 0) - pts, historial: historial.filter(h => !esDeLaCategoria(h)) };
+    modificadas.push(clave);
+    total += pts;
+  });
+  return { jugadores: nxt, modificadas, total };
+}
+
+// Cuántos jugadores tienen puntos de esta categoría (para avisar antes de quitarlos)
+export const jugadoresConPuntosDe = (jugadores, torneoId, catId) =>
+  Object.values(jugadores || {}).filter(j => (j.historial || []).some(h => h.torneoId === torneoId && h.catId === catId)).length;
