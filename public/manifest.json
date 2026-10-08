@@ -1,6 +1,6 @@
 {
-  "name": "Torneos · Padel Box",
-  "short_name": "Torneos PB",
+  "name": "Torneos de pádel",
+  "short_name": "Torneos",
   "description": "Gestión de torneos de pádel: fixtures, resultados, llaves y ranking",
   "start_url": "/Torneos-Padel-Box/",
   "scope": "/Torneos-Padel-Box/",
