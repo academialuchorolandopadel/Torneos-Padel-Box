@@ -236,11 +236,12 @@ export async function eliminarJugador(cedula){
 
 // Atómico: guarda los jugadores cuyos puntos cambiaron y marca la categoría
 // como "puntos otorgados". entradas = [[cedula, jugador], ...]
-export async function guardarPuntos(catId,entradas){
+// otorgados=false se usa al quitar los puntos de una categoría
+export async function guardarPuntos(catId,entradas,otorgados=true){
   await asegurarIds(entradas.map(([cedula])=>cedula));
   const batch=fs().writeBatch(db());
   entradas.forEach(([cedula,jugador])=>batch.set(ref("jugadores",aBase(cedula)),jugadorABase(jugador)));
-  batch.update(ref("categorias",catId),{pointsAwarded:true});
+  batch.update(ref("categorias",catId),{pointsAwarded:otorgados});
   await batch.commit();
 }
 
