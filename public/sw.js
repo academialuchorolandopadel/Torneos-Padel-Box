@@ -1,4 +1,4 @@
-// PadelBox service worker — requisito de instalabilidad PWA
+// Service worker de Torneos — requisito de instalabilidad PWA
 // Estrategia: network-first (la app siempre intenta datos frescos de Firestore;
 // el cache solo sirve el shell si no hay conexión)
 const CACHE = "padelbox-v1";
