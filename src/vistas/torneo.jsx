@@ -4,7 +4,8 @@ import React, { useState, useRef } from "react";
 import { uid, COURTS, SLOT_DEFS, STAGE_PTS, STAGE_LABEL, AMERICANO_STAGE_PTS, CATEGORY_COLORS } from "../logica/constantes.js";
 import { calcZoneDistribution } from "../logica/programacion.js";
 import { calcStandings } from "../logica/resultados.js";
-import { getRoundNames, calcPairStages } from "../logica/llave.js";
+import { getRoundNames, calcPairStages, preguntaRegenerarLlave } from "../logica/llave.js";
+import { BotonConfirmar } from "./confirmar.jsx";
 import { resumenDisponibilidad } from "../logica/calendario.js";
 import { nombreParejaAuto } from "../logica/directorio.js";
 import { CampoJugador } from "./buscador.jsx";
@@ -275,7 +276,7 @@ export function Posiciones({ cat }) {
   );
 }
 
-export function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, isAdmin, onEditMatch, onEditKOPair, modoCalendario="finde" }) {
+export function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoints, pointsAwarded, onQuitarPuntos, jugadoresConPuntos=0, isAdmin, onEditMatch, onEditKOPair, modoCalendario="finde" }) {
   const byId=Object.fromEntries(cat.parejas.map(p=>[p.id,p]));
   const zonaStatus=cat.fixtureGenerado?cat.grupos.map(g=>{
     const partidos=cat.partidos.filter(m=>m.grupoId===g.id&&m.p1id&&m.p2id);
@@ -317,9 +318,19 @@ export function LlaveFinal({ cat, allMatches, onGenerarLlave, onOpen, onAwardPoi
           {cat.knockoutGenerated&&<span className="badge bb">{koDone}/{koTotal}</span>}
           {isAdmin&&koDone===koTotal&&koTotal>0&&<button className="btn btn-cyan btn-sm" onClick={onAwardPoints}>{pointsAwarded?"🔄 Actualizar puntos":"🏅 Otorgar puntos"}</button>}
           {pointsAwarded&&<span className="badge bg">✓ Puntos otorgados</span>}
-          {isAdmin&&<button className={`btn btn-sm ${puedeGenerar?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!puedeGenerar} title={puedeGenerar?"Generar llave":"Generá el fixture primero"} style={{opacity:puedeGenerar?1:0.4,cursor:puedeGenerar?'pointer':'not-allowed'}}>{cat.knockoutGenerated?(todasCompletas?"🔄 Regenerar Llave":"🔄 Actualizar Llave"):(todasCompletas?"🏆 Generar Llave Final":"⚡ Llave Provisional")}</button>}
+          {/* Generar por primera vez no reemplaza nada: no pregunta.
+              Rehacer una llave existente pregunta con la consecuencia concreta.
+              Con los puntos otorgados, la llave queda cerrada (ver aviso abajo). */}
+          {isAdmin&&!cat.knockoutGenerated&&<button className={`btn btn-sm ${puedeGenerar?"btn-primary":"btn-secondary"}`} onClick={onGenerarLlave} disabled={!puedeGenerar} title={puedeGenerar?"Generar llave":"Generá el fixture primero"} style={{opacity:puedeGenerar?1:0.4,cursor:puedeGenerar?'pointer':'not-allowed'}}>{todasCompletas?"🏆 Generar Llave Final":"⚡ Llave Provisional"}</button>}
+          {isAdmin&&cat.knockoutGenerated&&!pointsAwarded&&<BotonConfirmar className="btn btn-sm btn-primary" pregunta={preguntaRegenerarLlave(koDone,modoCalendario)} textoSi={todasCompletas?"Sí, regenerar":"Sí, actualizar"} onConfirmar={onGenerarLlave}>{todasCompletas?"🔄 Regenerar Llave":"🔄 Actualizar Llave"}</BotonConfirmar>}
         </div>
       </div>
+      {isAdmin&&cat.knockoutGenerated&&pointsAwarded&&(
+        <div className="alert alert-warn" style={{lineHeight:1.5}}>
+          🔒 La llave está cerrada porque ya otorgaste los puntos. Si un resultado de la llave está mal, corregilo y tocá "🔄 Actualizar puntos": no hace falta rehacerla. Si hay que rehacerla (por ejemplo, porque cambió quién clasificó), primero quitá los puntos.
+          {onQuitarPuntos&&<div style={{marginTop:8}}><BotonConfirmar className="btn btn-danger btn-xs" pregunta={`Se descuentan los puntos de ${jugadoresConPuntos} jugador${jugadoresConPuntos===1?"":"es"}. Después rehacés la llave y los otorgás de nuevo.`} textoSi="Sí, quitar puntos" onConfirmar={onQuitarPuntos}>Quitar puntos de esta categoría</BotonConfirmar></div>}
+        </div>
+      )}
       {cat.fixtureGenerado&&(
         <div className="card mb16">
           <div className="card-title" style={{marginBottom:10}}>Estado de Zonas</div>
