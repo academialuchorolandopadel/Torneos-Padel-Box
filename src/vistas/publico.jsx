@@ -11,6 +11,7 @@ import { estadoCategoria, mensajeInscripcion, faltantesInscripcion, numeroWhatsA
 import { fechaHoyISO } from "../logica/fechas.js";
 import { plataforma, yaInstalada, puedeInstalarDirecto, pedirInstalacion, alCambiarInstalacion } from "../instalar.js";
 import { VERSION } from "../version.js";
+import { textoPie } from "./marca.jsx";
 
 // "#FFFFFF" + 0.14 -> "rgba(255,255,255,0.14)" (en vez de color-mix, que algunos celulares viejos no entienden)
 function transparente(hex, alfa) {
@@ -235,7 +236,7 @@ export function PaginaTorneo({ torneoId }) {
     <div className="pt-pie">
       {club.instagram && <div>{club.instagram}</div>}
       {club.textoApoyo && <div>{club.textoApoyo}</div>}
-      <div style={{ opacity: 0.6 }}>PadelBox {VERSION}</div>
+      <div style={{ opacity: 0.6 }}>{textoPie(VERSION)}</div>
     </div>
   </>);
 }
