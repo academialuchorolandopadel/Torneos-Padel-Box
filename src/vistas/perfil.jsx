@@ -4,7 +4,8 @@
 //  - PerfilesAdmin: el organizador ve todos los perfiles, el nivel que da el
 //    filtro, los que hay que validar o revisar, y el WhatsApp de cada uno.
 //    Tiene una segunda solapa, "Partidos posibles", con los grupos de 4 que
-//    arma logica/partidos.js y el mensaje listo para mandar por WhatsApp.
+//    arma logica/partidos.js y el mensaje listo para mandar por WhatsApp, y
+//    una tercera, "Anotados", con las inscripciones del link público para aprobar.
 // La lógica (tabla de lectura, franjas, vigencia) vive en logica/perfil.js.
 import React, { useState, useEffect } from "react";
 import { CAT_LABELS } from "../logica/constantes.js";
@@ -14,6 +15,7 @@ import { PREGUNTAS, FRANJAS, calcularNivel, categoriasParaArmar, difiereDeOficia
   nuevaVigencia, estaVigente, normalizarWhatsapp, validarPerfil } from "../logica/perfil.js";
 import { BotonConfirmar } from "./confirmar.jsx";
 import { separarAptos, sugerirPartidos, mensajeInvitacion, enlaceWhatsapp } from "../logica/partidos.js";
+import { linkAnotarse, revisarSolicitudes } from "../logica/anotarse.js";
 
 const LADOS = [["drive", "Drive"], ["reves", "Revés"], ["ambos", "Los dos, cómodo en ambos"]];
 const GENEROS = [["M", "Caballeros"], ["F", "Damas"]];
@@ -200,8 +202,9 @@ const GRUPOS = [
   ["incompleto", "Incompletos", "Les falta el cuestionario o no terminaron el perfil."],
 ];
 
-export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpdateCategoria }) {
+export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpdateCategoria, onCargarSolicitudes, onAprobarSolicitud, onEliminarSolicitud }) {
   const [filas, setFilas] = useState(null);
+  const [solicitudes, setSolicitudes] = useState([]);
   const [error, setError] = useState("");
   const [abierto, setAbierto] = useState(null);
   const [solapa, setSolapa] = useState("perfiles");
@@ -209,7 +212,7 @@ export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpda
 
   const cargar = async () => {
     setError("");
-    try { setFilas(await onCargar()); }
+    try { const [f, s] = await Promise.all([onCargar(), onCargarSolicitudes()]); setFilas(f); setSolicitudes(s); }
     catch (err) { console.error(err); setError("No se pudieron cargar los perfiles: " + err.message); }
   };
   useEffect(() => { cargar(); }, []);
@@ -281,6 +284,19 @@ export function PerfilesAdmin({ jugadores, torneos, onCargar, onEliminar, onUpda
     <div className="cat-tabs" style={{ marginBottom: 16 }}>
       <button className={`cat-tab${solapa === "perfiles" ? " on" : ""}`} onClick={() => setSolapa("perfiles")}>Perfiles</button>
       <button className={`cat-tab${solapa === "partidos" ? " on" : ""}`} onClick={() => setSolapa("partidos")}>Partidos posibles</button>
+      <button className={`cat-tab${solapa === "anotados" ? " on" : ""}`} onClick={() => setSolapa("anotados")}>Anotados{solicitudes.length ? ` (${solicitudes.length})` : ""}</button>
+    </div>
+  );
+
+  if (solapa === "anotados") return (
+    <div>
+      <div className="sec-hdr">
+        <div className="sec-title">Anotados</div>
+        <button className="btn btn-ghost btn-sm" onClick={cargar}>🔄 Actualizar</button>
+      </div>
+      {solapas}
+      <Anotados solicitudes={solicitudes} nombreEnApp={c => jugadores[c]?.nombre || nombreDesdeInscripciones(torneos, c)}
+        onAprobar={onAprobarSolicitud} onEliminar={onEliminarSolicitud} onCambio={cargar} />
     </div>
   );
 
@@ -392,6 +408,113 @@ function PartidosPosibles({ filas, jugadores, hoy, nombreDe }) {
             </div>
           ))}
         </div>}
+      </div>}
+    </div>
+  );
+}
+
+// ================= Anotados por el link público (admin) =================
+// Cada solicitud se aprueba (queda registrado con su perfil) o se borra.
+
+function LinkInscripcion() {
+  const link = linkAnotarse(window.location.href);
+  const [copiado, setCopiado] = useState(false);
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(link); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }
+    catch { window.prompt("Copiá el link:", link); }
+  };
+  const texto = `Estoy armando partidos con gente del mismo nivel, para jugar partidos parejos y con gente nueva 🎾 Anotate acá: ${link}`;
+  return (
+    <div className="card mb16">
+      <div className="card-title">Link de inscripción</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", wordBreak: "break-all", marginBottom: 10 }}>{link}</div>
+      <div className="row wrap g8">
+        <button className="btn btn-secondary btn-sm" onClick={copiar}>{copiado ? "✓ Copiado" : "Copiar link"}</button>
+        <a className="btn btn-cyan btn-sm" style={{ textDecoration: "none" }} href={`https://wa.me/?text=${encodeURIComponent(texto)}`} target="_blank" rel="noopener noreferrer">Compartir por WhatsApp</a>
+      </div>
+    </div>
+  );
+}
+
+function Anotados({ solicitudes, nombreEnApp, onAprobar, onEliminar, onCambio }) {
+  const [ocupado, setOcupado] = useState(null);   // id en proceso, o "todos"
+  const [aviso, setAviso] = useState("");
+  const [abierta, setAbierta] = useState(null);
+  const lista = revisarSolicitudes(solicitudes, nombreEnApp)
+    .map(s => ({ ...s, distinto: !!s.nombreEnApp && s.nombreEnApp.toLowerCase() !== s.nombre.toLowerCase() }));
+  // Los que tienen ⚠️ (cédula que ya está en la app con otro nombre) no entran
+  // en "Aprobar todos": es justo el caso de alguien usando una cédula ajena.
+  const seguros = lista.filter(s => !s.distinto);
+
+  const aprobar = async (s) => {
+    setOcupado(s.id); setAviso("");
+    try { await onAprobar(s); await onCambio(); }
+    catch (err) { console.error(err); setAviso("No se pudo aprobar a " + s.nombre + ": " + err.message); }
+    finally { setOcupado(null); }
+  };
+  // De a una, en orden de llegada: si alguien se anotó dos veces, queda la última
+  const aprobarTodos = async () => {
+    setOcupado("todos"); setAviso("");
+    let ok = 0;
+    for (const s of seguros) {
+      try { await onAprobar(s); ok++; }
+      catch (err) { console.error(err); setAviso(`Se aprobaron ${ok}. Falló ${s.nombre}: ${err.message}`); break; }
+    }
+    await onCambio(); setOcupado(null);
+  };
+  const borrar = async (s) => {
+    try { await onEliminar(s.id); await onCambio(); }
+    catch (err) { alert("Error al borrar: " + err.message); }
+  };
+
+  return (
+    <div>
+      <LinkInscripcion />
+      {aviso && <div className="alert alert-warn">{aviso}</div>}
+      {lista.length === 0 && <div className="empty" style={{ paddingTop: 24 }}><div className="empty-ico">📝</div><p>No hay inscripciones nuevas.</p><p style={{ fontSize: 12, marginTop: 8 }}>Compartí el link: los que se anoten aparecen acá para que los apruebes.</p></div>}
+      {lista.length > 0 && <div className="card mb16">
+        <div className="row wrap g8 just-between mb8">
+          <div className="card-title" style={{ margin: 0 }}>Para aprobar</div>
+          {seguros.length > 0 && <button className="btn btn-primary btn-sm" disabled={!!ocupado} onClick={aprobarTodos}>{ocupado === "todos" ? "Aprobando..." : seguros.length === lista.length ? `Aprobar todos (${lista.length})` : `Aprobar ${seguros.length} sin ⚠️`}</button>}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Revisá que los nombres sean reales. Si algo te parece raro, borralo con 🗑️ antes de aprobar. Los que tienen ⚠️ se aprueban de a uno.</div>
+        {lista.map(s => {
+          const nivel = calcularNivel(s.respuestas);
+          const distinto = s.distinto;
+          return (
+            <div key={s.id} className="rank-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6, cursor: "default" }}>
+              <div className="row wrap g8 just-between">
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{s.nombre}</div>
+                <div className="row wrap g8">
+                  {nivel.min != null && <span className="badge bb">Filtro: {textoRango(nivel.min, nivel.max)}</span>}
+                  {nivel.estado === "revisar" && <span className="badge by">Nivel para revisar</span>}
+                  {s.repetida && <span className="badge by">Se anotó más de una vez</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>CI {s.cedula} · {GENERO_TXT[s.genero]} · {LADO_TXT[s.lado]} · {resumenDisponibilidad(s.disponibilidad)}</div>
+              {s.nombreEnApp && <div style={{ fontSize: 12, color: distinto ? "var(--gold)" : "var(--accent)" }}>
+                {distinto ? `⚠️ Esta cédula ya está en la app como "${s.nombreEnApp}". Fijate que sea la misma persona.` : "Ya estaba en la app: se le suma el perfil a su ficha."}
+              </div>}
+              <div className="row wrap g8">
+                <a className="btn btn-cyan btn-xs" style={{ textDecoration: "none" }} href={`https://wa.me/${s.whatsapp}`} target="_blank" rel="noopener noreferrer">WhatsApp +{s.whatsapp}</a>
+                <button className="btn btn-ghost btn-xs" onClick={() => setAbierta(abierta === s.id ? null : s.id)}>{abierta === s.id ? "Ocultar respuestas" : "Ver respuestas"}</button>
+                <span style={{ marginLeft: "auto" }} className="row g8">
+                  <button className="btn btn-primary btn-xs" disabled={!!ocupado} onClick={() => aprobar(s)}>{ocupado === s.id ? "Aprobando..." : "Aprobar"}</button>
+                  <BotonConfirmar pregunta="¿Borrar esta inscripción?" textoSi="Sí, borrar" onConfirmar={() => borrar(s)}>🗑️</BotonConfirmar>
+                </span>
+              </div>
+              {abierta === s.id && <div style={{ background: "var(--bg2)", borderRadius: 8, padding: "10px 12px" }}>
+                {PREGUNTAS.map(p => {
+                  const o = p.opciones.find(x => x.id === s.respuestas?.[p.id]);
+                  return <div key={p.id} style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.4 }}>
+                    <span style={{ color: "var(--muted)" }}>{p.texto}</span><br />
+                    <span>{o ? o.texto : "Sin respuesta"}{o?.banda ? ` (${textoRango(o.banda.min, o.banda.max)})` : ""}</span>
+                  </div>;
+                })}
+              </div>}
+            </div>
+          );
+        })}
       </div>}
     </div>
   );
