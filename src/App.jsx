@@ -6,7 +6,7 @@ import { calcZoneDistribution, scheduleMatches, scheduleKnockoutMatches, armarZo
 import { programarLargo, tieneHorario, sinHorario, minutosAbsolutos, limitesLlave, listosSinHorario, pendientesReproponer } from "./logica/armado.js";
 import { calcMatchResult, calcClassified } from "./logica/resultados.js";
 import { buildDynamicBracket } from "./logica/llave.js";
-import { calcularAsignaciones, aplicarPuntos } from "./logica/puntos.js";
+import { calcularAsignaciones, aplicarPuntos, quitarPuntos, jugadoresConPuntosDe } from "./logica/puntos.js";
 import { fechaHoyISO, horaActual } from "./logica/fechas.js";
 import { CSS } from "./estilos.js";
 import { PinModal, PlayerLoginModal, ResultModal, EditPairModal, EditMatchModal, EditKOPairModal } from "./vistas/modales.jsx";
@@ -26,6 +26,7 @@ import { BotonConfirmar } from "./vistas/confirmar.jsx";
 import { VERSION } from "./version.js";
 import { VERSION_ESQUEMA } from "./logica/identidad.js";
 import { Mantenimiento, MigracionView } from "./vistas/migracion.jsx";
+import { Marca, MarcaGrande, textoPie } from "./vistas/marca.jsx";
 import { MiPerfil, PerfilesAdmin } from "./vistas/perfil.jsx";
 import { partesDeSolicitud } from "./logica/anotarse.js";
 
@@ -95,7 +96,7 @@ export default function App() {
   useEffect(()=>{if(authListo)loadData();},[authListo,isAdmin]);
 
   // Pie con la versión: se muestra en todas las pantallas
-  const pie=<div className="pie-version">PadelBox {VERSION}</div>;
+  const pie=<div className="pie-version">{textoPie(VERSION)}</div>;
 
   const activeTorneo=torneos.find(t=>t.id===activeTId);
   const activeCat=activeTorneo?.categorias?.find(c=>c.id===activeCId);
@@ -152,6 +153,9 @@ export default function App() {
 
   async function recalcularLlaveProvisoria(catData){
     if(!catData?.knockoutGenerated||!catData?.knockoutRounds?.length)return;
+    // Llave cerrada: con los puntos otorgados no se toca sola. El resultado de
+    // zona queda guardado; para que impacte en la llave hay que quitar los puntos.
+    if(catData.pointsAwarded){alert("Resultado guardado. La llave no se actualizó porque los puntos ya están otorgados: si cambia quién clasifica, quitá los puntos desde la Llave Final.");return;}
     const result=calcClassified(catData,true);
     if(!result.classified?.length)return;
     const{classified,bracketSize}=result;
@@ -515,6 +519,24 @@ export default function App() {
     }
   }
 
+  // Quita los puntos de la categoría activa y la marca como no otorgada.
+  // Es el paso previo obligatorio para rehacer una llave ya cerrada.
+  async function quitarPuntosCategoria(){
+    if(!activeCat||!activeTorneo)return;
+    const {jugadores:nxt,modificadas}=quitarPuntos({jugadores,torneoId:activeTorneo.id,catId:activeCat.id});
+    const jugadoresAntes=jugadores;
+    setJugadores(nxt);
+    updateCat(activeCId,c=>({...c,pointsAwarded:false}));
+    try{
+      await datos.guardarPuntos(activeCId,modificadas.map(c=>[c,nxt[c]]),false);
+    }catch(err){
+      console.error("Error quitando puntos:",err);
+      setJugadores(jugadoresAntes);
+      updateCat(activeCId,c=>({...c,pointsAwarded:true}));
+      alert("❌ No se pudieron quitar los puntos: "+err.message);
+    }
+  }
+
   async function agregarJugadorAmericanoIndividual(jugador){
     const list=activeCat.jugadoresAmericano||[];
     if(list.some(j=>j.cedula===jugador.cedula))return;
@@ -777,19 +799,19 @@ export default function App() {
     }
   }
 
-  if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div>{pie}</div></>);
-  if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div>{pie}</div></>);
+  if(loading)return(<><style>{CSS}</style><div className="app"><header className="hdr"><Marca club={club}/></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⏳</div><p style={{color:"var(--muted)"}}>Cargando torneos...</p></div>{pie}</div></>);
+  if(error)return(<><style>{CSS}</style><div className="app"><header className="hdr"><Marca club={club}/></header><div className="main" style={{textAlign:"center",paddingTop:80}}><div className="empty-ico" style={{fontSize:40}}>⚠️</div><p style={{color:"var(--danger)"}}>Error: {error}</p><button className="btn btn-primary" style={{marginTop:20}} onClick={()=>window.location.reload()}>Reintentar</button></div>{pie}</div></>);
 
   // Datos en formato viejo (cédulas a la vista): nadie los ve hasta migrar
   if(esquema<VERSION_ESQUEMA){
     return(<><style>{CSS}</style><div className="app">
-      <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
+      <header className="hdr"><Marca club={club}/>
         {isAdmin&&<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:"auto"}}>🔓 Admin</button>}
       </header>
       <div className="main">
         {isAdmin
           ?<MigracionView onPrepararCopia={prepararCopia} onAplicarRestauracion={datos.aplicarRestauracion} onTerminado={()=>loadData()}/>
-          :<Mantenimiento onAdmin={()=>setShowPinModal(true)}/>}
+          :<Mantenimiento club={club} onAdmin={()=>setShowPinModal(true)}/>}
       </div>
       {pie}
       {showPinModal&&<PinModal onSuccess={()=>setShowPinModal(false)} onClose={()=>setShowPinModal(false)}/>}
@@ -800,7 +822,7 @@ export default function App() {
     if(publicRanking)return(<><style>{CSS}</style><div className="app">
       <header className="hdr">
         <button className="btn btn-ghost btn-sm" onClick={()=>setPublicRanking(false)}>← Volver</button>
-        <div className="logo">PADEL<em>BOX</em></div>
+        <Marca club={club}/>
       </header>
       <div className="main">
         <JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={()=>{}} onUpdateCategoria={()=>{}} onUpdateGenero={()=>{}} onCreateJugador={()=>{}} isAdmin={false}/>
@@ -808,7 +830,7 @@ export default function App() {
       {pie}
     </div></>);
     return(<><style>{CSS}</style><div className="app">
-    <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
+    <header className="hdr"><Marca club={club}/>
       <div style={{marginLeft:"auto",display:"flex",gap:8}}>
         <button className="btn btn-ghost btn-sm" onClick={()=>setShowPlayerLogin(true)}>👤 Jugador</button>
         <button className="btn btn-ghost btn-sm" onClick={()=>setShowPinModal(true)}>🔑 Admin</button>
@@ -816,7 +838,7 @@ export default function App() {
     </header>
     <div className="main" style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{textAlign:"center"}}>
-        <div className="hero-title" style={{marginBottom:16}}>PADEL<em style={{fontStyle:"normal",color:"var(--accent)"}}>BOX</em></div>
+        <MarcaGrande club={club}/>
         <p style={{color:"var(--muted)",marginBottom:24}}>Seleccioná tu forma de acceso</p>
         <div className="row g12 wrap" style={{justifyContent:"center"}}>
           <button className="btn btn-primary" onClick={()=>setShowPlayerLogin(true)}>👤 Ingresar como Jugador</button>
@@ -832,7 +854,7 @@ export default function App() {
   }
 
   if(!activeTId)return(<><style>{CSS}</style><div className="app">
-    <header className="hdr"><div className="logo">PADEL<em>BOX</em></div>
+    <header className="hdr"><Marca club={club}/>
       <div className="nav-tabs" style={{marginLeft:"auto"}}>
         <button className={`nav-tab${appView==="torneos"?" on":""}`} onClick={()=>setAppView("torneos")}>🎾 Torneos</button>
         <button className={`nav-tab jug${appView==="jugadores"?" on":""}`} onClick={()=>setAppView("jugadores")}>🏅 Jugadores</button>
@@ -970,7 +992,7 @@ export default function App() {
           {subview==="fixture"&&<Fixture cat={activeCat} onGenerate={generarFixture} isAdmin={isAdmin} modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} onReproponer={reproponerLargo} infoLargo={infoLargo} onImagen={()=>setModal({type:"imagen"})} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="resultados"&&<Resultados cat={activeCat} onOpen={m=>isAdmin&&setModal({type:"res",match:m})} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})}/>}
           {subview==="posiciones"&&<Posiciones cat={activeCat}/>}
-          {subview==="llave"&&<LlaveFinal modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
+          {subview==="llave"&&<LlaveFinal modoCalendario={activeTorneo?.calendario==="largo"?"largo":"finde"} cat={activeCat} allMatches={allMatches} onGenerarLlave={generarLlave} onOpen={m=>isAdmin&&setModal({type:"koRes",match:m})} onAwardPoints={otorgarPuntos} pointsAwarded={activeCat.pointsAwarded} onQuitarPuntos={quitarPuntosCategoria} jugadoresConPuntos={jugadoresConPuntosDe(jugadores,activeTorneo?.id,activeCat.id)} isAdmin={isAdmin} onEditMatch={m=>isAdmin&&setModal({type:"editMatch",match:m})} onEditKOPair={m=>isAdmin&&setModal({type:"editKOPair",match:m})}/>}
           {subview==="agenda"&&isAdmin&&<AgendaView torneo={activeTorneo} allPartidos={[...allMatches,...(activeTorneo?.categorias?.flatMap(c=>c.knockoutRounds?.flat()||[])||[])]} isAdmin={isAdmin} onEditMatch={m=>setModal({type:"editMatch",match:m})} onToggleBloqueo={toggleBloqueoSlot}/>}
         </>
       )}
