@@ -83,7 +83,7 @@ function VistaPrevia({ club }) {
   const p = paletaDelClub(club);
   return (
     <div style={{ background: p.fondo, color: p.texto, borderRadius: 14, padding: 20, border: "1px solid var(--border)" }}>
-      {p.logo ? <img src={p.logo} alt="logo" style={{ height: 56, maxWidth: "70%", objectFit: "contain" }} /> : <div style={{ fontWeight: 700, fontSize: 22 }}>{club.nombre}</div>}
+      {p.logo ? <img src={p.logo} alt="logo" style={{ height: 56, maxWidth: "70%", objectFit: "contain" }} /> : <div style={{ fontWeight: 700, fontSize: 22 }}>{club.nombre || "TORNEOS"}</div>}
       <div style={{ fontFamily: "Oswald", fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 12 }}>Torneo de ejemplo</div>
       <div style={{ display: "inline-block", background: p.acento, color: "#111", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginTop: 6 }}>PARTIDOS DE LA SEMANA</div>
       <div style={{ marginTop: 12, fontSize: 13, opacity: 0.9 }}>Mar 14/10 · 19:00 · BOX 1 — Pérez / Gómez vs Rojas / Díaz</div>
@@ -279,7 +279,7 @@ export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia, onAp
         <div>
           <div className="card mb16">
             <div className="card-title">Identidad</div>
-            <Campo label="Nombre del club"><input className="inp" value={form.nombre} onChange={setTexto("nombre")} /></Campo>
+            <Campo label="Nombre del club" ayuda={"Aparece al lado de TORNEOS en el encabezado y en las piezas. Vacío = solo TORNEOS."}><input className="inp" value={form.nombre} onChange={setTexto("nombre")} /></Campo>
             <div className="grid2 mb12">
               <SlotLogo titulo="Logo para fondo claro" fondo="#FFFFFF" valor={form.logoColor} onSubir={subirLogo("logoColor")} onQuitar={() => subirLogo("logoColor")("")} />
               <SlotLogo titulo="Logo para fondo oscuro" fondo={form.colorOscuro} valor={form.logoBlanco} onSubir={subirLogo("logoBlanco")} onQuitar={() => subirLogo("logoBlanco")("")} />
@@ -309,7 +309,7 @@ export function ClubView({ club, onGuardar, onGuardarLogo, onPrepararCopia, onAp
           <div className="card mb16">
             <div className="card-title">Contacto</div>
             <Campo label="WhatsApp" ayuda="Con código de país, para el botón de contacto. Ej: 595981123456"><input className="inp" inputMode="tel" value={form.whatsapp} onChange={setTexto("whatsapp")} placeholder="595..." /></Campo>
-            <Campo label="Instagram"><input className="inp" value={form.instagram} onChange={setTexto("instagram")} placeholder="@padelbox" /></Campo>
+            <Campo label="Instagram"><input className="inp" value={form.instagram} onChange={setTexto("instagram")} placeholder="@tuclub" /></Campo>
             <Campo label="Dirección"><input className="inp" value={form.direccion} onChange={setTexto("direccion")} /></Campo>
             <Campo label="Link de Google Maps (opcional)"><input className="inp" value={form.mapsUrl} onChange={setTexto("mapsUrl")} placeholder="https://maps.app.goo.gl/..." /></Campo>
           </div>
