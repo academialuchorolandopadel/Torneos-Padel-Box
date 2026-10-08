@@ -8,6 +8,7 @@ import { horasDelDia, aMin, aHora, NOMBRES_DIA, diaDeSemana, sumarDias, DURACION
 import { problemasDelHorario, libresDeCancha, conHorario } from "../logica/armado.js";
 import { fechaHoyISO, formatearFecha } from "../logica/fechas.js";
 import { getRoundNames } from "../logica/llave.js";
+import { BotonConfirmar } from "./confirmar.jsx";
 
 const nombreFecha = (iso) => `${NOMBRES_DIA[diaDeSemana(iso)]} ${formatearFecha(iso)}`;
 
@@ -46,10 +47,13 @@ export function CronogramaLargo({ cat, isAdmin, onEditMatch, onReproponer }) {
       </div>
       {isAdmin && (
         <div className="row wrap g8 mb16">
-          <button className="btn btn-secondary btn-sm" disabled={trabajando}
-            onClick={async () => { setTrabajando(true); try { await onReproponer(); } finally { setTrabajando(false); } }}>
-            {trabajando ? "Armando..." : "🔄 Re-proponer pendientes"}
-          </button>
+          {trabajando ? <button className="btn btn-secondary btn-sm" disabled>Armando...</button> : (
+            <BotonConfirmar className="btn btn-secondary btn-sm" textoSi="Sí, re-proponer"
+              pregunta="Se mueven los partidos pendientes sin 📌. Si ya bloqueaste sus turnos en Reva, revisalos."
+              onConfirmar={async () => { setTrabajando(true); try { await onReproponer(); } finally { setTrabajando(false); } }}>
+              🔄 Re-proponer pendientes
+            </BotonConfirmar>
+          )}
           <span style={{ fontSize: 11, color: "var(--muted)" }}>Reacomoda los partidos no jugados y no fijados (📌). Usalo después de cambiar el calendario o la disponibilidad, o cuando se definen los rivales de C y D.</span>
         </div>
       )}
