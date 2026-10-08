@@ -23,14 +23,19 @@ const COLECCIONES_NUEVAS = ["accesos", "perfiles", "contactos", "solicitudes"];
 export function armarCopia(colecciones, version, fechaISO) {
   const resumen = {};
   COLECCIONES_COPIA.forEach(c => { resumen[c] = (colecciones[c] || []).length; });
-  return { app: "PadelBox", version, fecha: fechaISO, resumen, colecciones };
+  return { app: MARCA_COPIA, version, fecha: fechaISO, resumen, colecciones };
 }
 
-// "2026-09-28T17:06:00.000Z" -> "padelbox-copia-2026-09-28-1706.json" (hora local)
+// Marca que identifica un archivo como copia de esta app. Las copias hechas
+// hasta la v56 dicen "PadelBox": se siguen aceptando.
+export const MARCA_COPIA = "Torneos";
+const MARCAS_VALIDAS = ["Torneos", "PadelBox"];
+
+// "2026-09-28T17:06:00.000Z" -> "torneos-copia-2026-09-28-1706.json" (hora local)
 export function nombreArchivoCopia(fecha) {
   const d = new Date(fecha);
   const dos = (n) => String(n).padStart(2, "0");
-  return `padelbox-copia-${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}-${dos(d.getHours())}${dos(d.getMinutes())}.json`;
+  return `torneos-copia-${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}-${dos(d.getHours())}${dos(d.getMinutes())}.json`;
 }
 
 // Texto corto para confirmar qué se guardó
@@ -53,11 +58,11 @@ function estable(v) {
   return JSON.stringify(v);
 }
 
-// Revisa que el archivo sea una copia de PadelBox bien formada.
+// Revisa que el archivo sea una copia de esta app bien formada.
 // Devuelve { ok: true } o { ok: false, error: "texto para mostrar" }
 export function validarCopia(copia) {
   if (!copia || typeof copia !== "object") return { ok: false, error: "El archivo no tiene el formato de una copia." };
-  if (copia.app !== "PadelBox") return { ok: false, error: "El archivo no es una copia de PadelBox." };
+  if (!MARCAS_VALIDAS.includes(copia.app)) return { ok: false, error: "El archivo no es una copia de la app de torneos." };
   const cols = copia.colecciones;
   if (!cols || typeof cols !== "object") return { ok: false, error: "La copia no tiene colecciones." };
   for (const c of COLECCIONES_COPIA) {
@@ -124,7 +129,7 @@ export function armarLotes(ops, maxOps = 400, maxBytes = 8 * 1024 * 1024) {
   return lotes;
 }
 
-// "padelbox-antes-de-restaurar-2026-09-28-1706.json"
+// "torneos-antes-de-restaurar-2026-09-28-1706.json"
 export function nombreArchivoPrevio(fecha) {
-  return nombreArchivoCopia(fecha).replace("padelbox-copia-", "padelbox-antes-de-restaurar-");
+  return nombreArchivoCopia(fecha).replace("torneos-copia-", "torneos-antes-de-restaurar-");
 }
