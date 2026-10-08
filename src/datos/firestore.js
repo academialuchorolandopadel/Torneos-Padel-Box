@@ -98,7 +98,9 @@ export async function cargarTodo(esAdmin=false){
     const cats=await Promise.all(cs.docs.map(async dc=>{
       const cat=categoriaAMemoria({id:dc.id,...dc.data()},aMemoria);
       const ps=await getDocs(query(collection(db(),"parejas"),where("categoriaId","==",cat.id)));
-      cat.parejas=ps.docs.map(d=>migratePairRestrictions(parejaAMemoria({id:d.id,...d.data()},aMemoria)));
+      // En orden de inscripción (las anteriores a v57 no tienen fecha: van primero, en orden fijo)
+      cat.parejas=ps.docs.map(d=>migratePairRestrictions(parejaAMemoria({id:d.id,...d.data()},aMemoria)))
+        .sort((a,b)=>(a.inscriptaEn||0)-(b.inscriptaEn||0));
       const ms=await getDocs(query(collection(db(),"partidos"),where("categoriaId","==",cat.id)));
       cat.partidos=ms.docs.map(d=>{const p={id:d.id,...d.data()};if(p.done&&p.winner==null&&p.p1id&&p.p2id)p.winner=calcMatchResult(p);return p;});
       // La llave se guarda como lista plana; acá se rearma en rondas
