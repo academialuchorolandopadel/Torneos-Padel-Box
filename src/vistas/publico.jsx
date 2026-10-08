@@ -3,7 +3,7 @@
 // sus inscriptos y cupo, un formulario corto que arma el mensaje de
 // inscripción para WhatsApp, y cómo instalar la app.
 // No guarda nada: el formulario solo arma el texto del mensaje.
-// Usa la identidad de Padel Box (colores y logo de 🏟️ Club), no la de la app.
+// Usa la identidad del club (colores y logo de 🏟️ Club), no la de la app.
 import React, { useEffect, useState } from "react";
 import { cargarTorneoPublico } from "../datos/firestore.js";
 import { conDefectoClub, conDefectoFicha, paletaDelClub } from "../logica/club.js";
@@ -191,7 +191,7 @@ export function PaginaTorneo({ torneoId }) {
   const club = conDefectoClub(d?.club);
   const p = paletaDelClub(club);
   useEffect(() => {
-    if (d) document.title = `${d.torneo.nombre} · ${club.nombre}`;
+    if (d) document.title = [d.torneo.nombre, club.nombre].filter(Boolean).join(" · ");
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", p.fondo);
   }, [d, p.fondo]);
@@ -208,10 +208,10 @@ export function PaginaTorneo({ torneoId }) {
   const fechas = rangoFechas(torneo.fecha, ficha.fechaFin);
   const precio = ficha.precio ? `${ficha.precio}` : "";
   return envoltorio(<>
-    {p.logo ? <img className="pt-logo" src={p.logo} alt={club.nombre} /> : <div className="pt-club">{club.nombre}</div>}
+    {p.logo ? <img className="pt-logo" src={p.logo} alt={club.nombre} /> : club.nombre ? <div className="pt-club">{club.nombre}</div> : null}
     <h1 className="pt-h1">{torneo.nombre}</h1>
     {fechas && <div className="pt-fecha">{fechas}{torneo.horaInicio ? `, desde las ${torneo.horaInicio}` : ""}</div>}
-    {club.direccion && <div className="pt-lugar">{club.nombre} · {club.direccion}{club.mapsUrl && <> · <a href={club.mapsUrl} target="_blank" rel="noopener noreferrer">Cómo llegar</a></>}</div>}
+    {club.direccion && <div className="pt-lugar">{[club.nombre, club.direccion].filter(Boolean).join(" · ")}{club.mapsUrl && <> · <a href={club.mapsUrl} target="_blank" rel="noopener noreferrer">Cómo llegar</a></>}</div>}
 
     {(precio || ficha.fechaLimite) && (
       <div className="pt-datos">
