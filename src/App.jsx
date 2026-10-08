@@ -2,7 +2,7 @@
 // No habla con Firebase: todo lo que se lee o guarda pasa por datos/.
 import React, { useState, useEffect } from "react";
 import { uid, LETTERS, SLOT_DEFS } from "./logica/constantes.js";
-import { calcZoneDistribution, scheduleMatches, scheduleKnockoutMatches, armarZonas, crearPartidosDeZona } from "./logica/programacion.js";
+import { calcZoneDistribution, scheduleMatches, scheduleKnockoutMatches, armarZonasPorRanking, crearPartidosDeZona, calcCompatibilityScore } from "./logica/programacion.js";
 import { programarLargo, tieneHorario, sinHorario, minutosAbsolutos, limitesLlave, listosSinHorario, pendientesReproponer } from "./logica/armado.js";
 import { calcMatchResult, calcClassified } from "./logica/resultados.js";
 import { buildDynamicBracket } from "./logica/llave.js";
@@ -18,7 +18,7 @@ import { CalendarioClubView } from "./vistas/calendario.jsx";
 import { ClubView, FichaTorneoView } from "./vistas/club.jsx";
 import { ImagenSemanaModal } from "./vistas/imagen.jsx";
 import { armarDirectorio } from "./logica/directorio.js";
-import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA, ventanasSemanales, compatibilidadSemanal, capacidadDia, sumarDias } from "./logica/calendario.js";
+import { DURACION_PARTIDO, MAX_PARTIDOS_SEMANA, compatibilidadSemanal, capacidadDia, sumarDias } from "./logica/calendario.js";
 import { EditMatchLargoModal } from "./vistas/largo.jsx";
 import { escucharSesionAdmin, cerrarSesionAdmin, leerSesionJugador, guardarSesionJugador, borrarSesionJugador } from "./datos/sesion.js";
 import { armarCopia } from "./logica/copia.js";
@@ -243,7 +243,9 @@ export default function App() {
     await guardarCategoria(nueva);
   }
 
-  async function agregarPareja(pair){
+  async function agregarPareja(pairIn){
+    // Momento de inscripción: desempata el ranking al armar las zonas
+    const pair=pairIn.inscriptaEn?pairIn:{...pairIn,inscriptaEn:Date.now()};
     if(!activeCat.fixtureGenerado){updateCat(activeCId,c=>({...c,parejas:[...c.parejas,pair]}));await guardarPareja(pair);}
     else{
       const c=activeCat;
@@ -287,12 +289,14 @@ export default function App() {
   async function generarFixture(){
     if(!activeCat||activeCat.parejas.length<3)return;
     const largo=activeTorneo?.calendario==="largo";
-    // Zonas: en torneo largo se juntan parejas por disponibilidad semanal;
-    // en fin de semana, por la grilla de slots (criterio por defecto)
-    const criterios=largo?{disponibilidad:p=>ventanasSemanales(p.disponibilidad).size,compatibilidad:(a,b)=>compatibilidadSemanal(a.disponibilidad,b.disponibilidad)}:undefined;
-    const {grupos,parejas:assignedPairs}=armarZonas(activeCat.parejas,criterios);
+    // Zonas por ranking (bombos en serpentina), en todos los formatos.
+    // Los horarios solo deciden cambios dentro del mismo bombo: en torneo largo
+    // se mira la disponibilidad semanal; en fin de semana, la grilla de slots.
+    const puntosPareja=p=>(jugadores[p.j1cedula]?.totalPts||0)+(jugadores[p.j2cedula]?.totalPts||0);
+    const compatibles=largo?(a,b)=>compatibilidadSemanal(a.disponibilidad,b.disponibilidad)>0:(a,b)=>calcCompatibilityScore(a,b)>0;
+    const {grupos,parejas:assignedPairs,ordenPorGrupo,avisos:avisosZonas}=armarZonasPorRanking(activeCat.parejas,{puntos:puntosPareja,compatibles});
     const pairMap=Object.fromEntries(assignedPairs.map(p=>[p.id,p]));
-    const raw=crearPartidosDeZona(grupos,assignedPairs);
+    const raw=crearPartidosDeZona(grupos,assignedPairs,ordenPorGrupo);
     let partidos;
     if(largo){
       const listos=new Set(raw.filter(m=>m.p1id&&m.p2id).map(m=>m.id));
@@ -309,6 +313,7 @@ export default function App() {
     await guardarCategoria({...updatedCat,id:activeCId});
     await Promise.all(assignedPairs.map(p=>guardarPareja(p)));
     await Promise.all(partidos.map(m=>guardarPartido(m)));
+    if(avisosZonas.length)alert("Zonas armadas por ranking. Quedaron cruces sin horarios en comun (no se pudo resolver dentro del mismo bombo):\n"+avisosZonas.join("\n")+"\nPodes cambiar parejas de zona a mano.");
     if(largo)avisarSinLugar(partidos);
   }
 
