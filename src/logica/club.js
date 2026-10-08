@@ -6,11 +6,12 @@
 //   - Ficha: cambia en cada torneo (descripción, precio, cupo, premios).
 // La imagen semanal y la página pública del torneo leen de acá.
 
-// Colores sacados del logo de Padel Box
+// Valores de arranque: sin nombre de club (la app no pertenece a un club;
+// cada club carga el suyo en 🏟️ Club). Colores: verde pelota sobre negro.
 export const CLUB_POR_DEFECTO = {
-  nombre: "Padel Box",
-  colorPrincipal: "#8DC73F", // verde de la pelota
-  colorOscuro: "#231F20",    // negro de las letras
+  nombre: "",                // vacío = la app muestra solo "TORNEOS"
+  colorPrincipal: "#8DC73F", // verde pelota (el mismo del ícono)
+  colorOscuro: "#231F20",    // negro
   colorClaro: "#FFFFFF",
   tema: "oscuro",            // fondo de las piezas: "oscuro" (logo blanco) o "claro" (logo color)
   whatsapp: "",
