@@ -122,7 +122,9 @@ export function scheduleKnockoutMatches(knockoutRounds, existingMatches, parejas
   return knockoutRounds.map(round=>round.map(m=>scheduledMap.get(m.id)||m));
 }
 
-// ---- Armado de zonas ----
+// ---- Armado de zonas anterior (EN DESUSO desde v57) ----
+// Se deja solo para que la app compile mientras se suben los archivos de la
+// v57 (el App.jsx viejo todavía la importa). Borrarla en una versión futura.
 // Reparte las parejas en zonas de 3 (y de 4 si hace falta), juntando las de
 // horarios más compatibles. Primero ubica a las parejas con menos horarios
 // disponibles, que son las más difíciles de acomodar.
@@ -152,13 +154,111 @@ export function armarZonas(parejas, criterios = {}) {
   return { grupos, parejas: asignadas };
 }
 
+// ---- Armado de zonas por ranking (desde v57, todos los formatos) ----
+// 1. Orden: puntos de la pareja (suma de sus dos jugadores) de mayor a menor;
+//    empate -> orden de inscripción (las parejas anteriores a la v57 no tienen
+//    fecha: cuentan como las primeras, en un orden fijo).
+// 2. Bombos del tamaño de la cantidad de zonas, repartidos en serpentina:
+//    fila 1 A->C, fila 2 C->A, fila 3 A->C. Las que sobran (zonas de 4) van a
+//    las primeras zonas, la más débil a la A: la zona del 1 recibe a la más débil.
+// 3. Horarios: si dos parejas de una zona que se tienen que enfrentar no
+//    comparten ningún horario, la de menor ranking se cambia por otra de su
+//    MISMO bombo (primero las de abajo, después las de arriba), solo si el
+//    cambio no le agrega conflictos a la otra zona. Si nada funciona, la zona
+//    queda como está y se avisa.
+// En zonas de 4 solo se controlan los dos primeros cruces (1° vs 4° y 2° vs 3°):
+// los segundos dependen de quién gane.
+//
+// parejas: [{id, inscriptaEn?, ...}]
+// opciones.puntos(p): puntos de la pareja
+// opciones.compatibles(a, b): true si comparten algún horario
+// Devuelve { grupos, parejas (con grupoId), ordenPorGrupo, bombos, avisos }
+export function armarZonasPorRanking(parejas, { puntos = () => 0, compatibles = () => true } = {}) {
+  const n = parejas.length;
+  const dist = calcZoneDistribution(n);
+  const nz = dist.zonasDe3 + dist.zonasDe4;
+  const grupos = Array.from({ length: nz }, (_, i) => ({ id: uid(), nombre: `ZONA ${LETTERS[i]}` }));
+  const pos = new Map(parejas.map((p, i) => [p.id, i]));
+  const orden = [...parejas].sort((a, b) =>
+    (puntos(b) - puntos(a)) ||
+    ((a.inscriptaEn ?? 0) - (b.inscriptaEn ?? 0)) ||
+    (pos.get(a.id) - pos.get(b.id)));
+  const ranking = new Map(orden.map((p, i) => [p.id, i])); // 0 = mejor
+  // Serpentina
+  const zonas = Array.from({ length: nz }, () => []);
+  const bombo = new Map();
+  const base = n >= 6 ? 3 * nz : n;
+  orden.forEach((p, i) => {
+    let z, fila;
+    if (i < base) { fila = Math.floor(i / nz); const col = i % nz; z = fila % 2 === 0 ? col : nz - 1 - col; }
+    else { fila = 3; z = (n - base - 1) - (i - base); } // sobrantes: la más débil a la A
+    zonas[z].push(p.id); bombo.set(p.id, fila);
+  });
+  const byId = Object.fromEntries(parejas.map(p => [p.id, p]));
+  const porRanking = (ids) => [...ids].sort((a, b) => ranking.get(a) - ranking.get(b));
+  // Cruces que se controlan: todos contra todos, o 1v4 y 2v3 en zonas de 4
+  const cruces = (ids) => {
+    const r = porRanking(ids);
+    if (r.length === 4) return [[r[0], r[3]], [r[1], r[2]]];
+    const out = [];
+    for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) out.push([r[i], r[j]]);
+    return out;
+  };
+  const conflictos = (ids) => cruces(ids).filter(([a, b]) => !compatibles(byId[a], byId[b]));
+  // Resolver conflictos con cambios dentro del bombo
+  for (let vuelta = 0; vuelta < 3 * n; vuelta++) {
+    let cambio = false;
+    for (let z = 0; z < nz && !cambio; z++) {
+      for (const [a, b] of conflictos(zonas[z])) {
+        const peor = ranking.get(a) > ranking.get(b) ? a : b;
+        const mismoBombo = orden.map(p => p.id).filter(id => id !== peor && bombo.get(id) === bombo.get(peor));
+        const abajo = mismoBombo.filter(id => ranking.get(id) > ranking.get(peor));
+        const arriba = mismoBombo.filter(id => ranking.get(id) < ranking.get(peor)).reverse();
+        for (const cand of [...abajo, ...arriba]) {
+          const zc = zonas.findIndex(ids => ids.includes(cand));
+          if (zc === z) continue;
+          const antesZ = conflictos(zonas[z]).length, antesC = conflictos(zonas[zc]).length;
+          const nuevaZ = zonas[z].map(id => id === peor ? cand : id);
+          const nuevaC = zonas[zc].map(id => id === cand ? peor : id);
+          const despZ = conflictos(nuevaZ).length, despC = conflictos(nuevaC).length;
+          if (despC <= antesC && despZ + despC < antesZ + antesC) {
+            zonas[z] = nuevaZ; zonas[zc] = nuevaC; cambio = true; break;
+          }
+        }
+        if (cambio) break;
+      }
+    }
+    if (!cambio) break;
+  }
+  // Resultado: orden dentro de cada zona por ranking; en zonas de 4, [1°, 4°, 2°, 3°]
+  // para que el partido A sea 1° vs 4° y el B 2° vs 3°.
+  const ordenPorGrupo = {};
+  const avisos = [];
+  const grupoDe = {};
+  zonas.forEach((ids, z) => {
+    const r = porRanking(ids);
+    ordenPorGrupo[grupos[z].id] = r.length === 4 ? [r[0], r[3], r[1], r[2]] : r;
+    r.forEach(id => { grupoDe[id] = grupos[z].id; });
+    conflictos(ids).forEach(([a, b]) => avisos.push(`${grupos[z].nombre}: ${byId[a].nombre || "?"} y ${byId[b].nombre || "?"} no comparten horarios.`));
+  });
+  return {
+    grupos,
+    parejas: parejas.map(p => ({ ...p, grupoId: grupoDe[p.id] ?? null })),
+    ordenPorGrupo,
+    bombos: Object.fromEntries(orden.map(p => [p.id, bombo.get(p.id)])),
+    avisos,
+  };
+}
+
 // Partidos de zona: todos contra todos en zonas de 3; en zonas de 4, el
 // mini-playoff A y B (1ra ronda) y C y D (se completan con ganadores y perdedores).
-export function crearPartidosDeZona(grupos, parejas) {
+// ordenPorGrupo (opcional): el orden de las parejas dentro de cada zona.
+// En zonas de 4, los dos primeros son el partido A y los dos siguientes el B.
+export function crearPartidosDeZona(grupos, parejas, ordenPorGrupo = {}) {
   const vacio = { done: false, winner: null, s1p1: "", s1p2: "", s2p1: "", s2p2: "", tbp1: "", tbp2: "" };
   let code = 1; const raw = [];
   grupos.forEach(g => {
-    const gIds = parejas.filter(p => p.grupoId === g.id).map(p => p.id);
+    const gIds = ordenPorGrupo[g.id] || parejas.filter(p => p.grupoId === g.id).map(p => p.id);
     if (gIds.length === 4) {
       const gid = g.id;
       raw.push({ id: uid(), type: "grupo", grupoId: gid, code: `Z${code++}`, p1id: gIds[0], p2id: gIds[1], ...vacio, zona4: true, zona4Tipo: "A", zona4GrupoId: gid });
