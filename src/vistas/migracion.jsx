@@ -34,7 +34,7 @@ export function MigracionView({ onPrepararCopia, onAplicarRestauracion, onTermin
     let antes;
     try {
       antes = await onPrepararCopia();
-      descargarJSON(antes, nombreArchivoCopia(antes.fecha).replace("padelbox-copia-", "padelbox-antes-de-migrar-"));
+      descargarJSON(antes, nombreArchivoCopia(antes.fecha).replace("torneos-copia-", "torneos-antes-de-migrar-"));
     } catch (err) { setFase("error"); setMensaje(`No se pudo guardar la copia previa (${err.message}). No se tocó nada.`); return; }
 
     const objetivo = planMigracion(antes.colecciones, nuevoIdJugador);
@@ -47,7 +47,7 @@ export function MigracionView({ onPrepararCopia, onAplicarRestauracion, onTermin
       await onAplicarRestauracion(lotes, (h, t) => setMensaje(`Migrando... parte ${h} de ${t}`));
     } catch (err) {
       setFase("error");
-      setMensaje(`Se cortó a mitad de camino (${err.message}). Restaurá abajo el archivo "padelbox-antes-de-migrar" que se descargó recién, y volvé a migrar.`);
+      setMensaje(`Se cortó a mitad de camino (${err.message}). Restaurá abajo el archivo "torneos-antes-de-migrar" que se descargó recién, y volvé a migrar.`);
       return;
     }
 
@@ -55,7 +55,7 @@ export function MigracionView({ onPrepararCopia, onAplicarRestauracion, onTermin
     let despues;
     try { despues = await onPrepararCopia(); } catch (err) { setFase("error"); setMensaje(`Se migró, pero no se pudo revisar (${err.message}). Recargá la página.`); return; }
     const problemas = revisarMigracion(despues.colecciones, cedulas);
-    if (problemas.length) { setFase("error"); setMensaje(`La migración terminó con problemas: ${problemas.join(" ")} Restaurá abajo el archivo "padelbox-antes-de-migrar" y avisame.`); return; }
+    if (problemas.length) { setFase("error"); setMensaje(`La migración terminó con problemas: ${problemas.join(" ")} Restaurá abajo el archivo "torneos-antes-de-migrar" y avisame.`); return; }
     setResumen({ jugadores: objetivo.jugadores.length, cedulas: cedulas.length, parejas: objetivo.parejas.length });
     setFase("listo");
   };
@@ -76,7 +76,7 @@ export function MigracionView({ onPrepararCopia, onAplicarRestauracion, onTermin
       </>}
       {fase === "listo" && resumen && (
         <div className="alert alert-ok" style={{ lineHeight: 1.6 }}>
-          ✓ Listo. {resumen.jugadores} jugadores en el ranking, {resumen.parejas} parejas y {resumen.cedulas} cédulas protegidas. Guardá el archivo "padelbox-antes-de-migrar" en un lugar privado: tiene las cédulas.
+          ✓ Listo. {resumen.jugadores} jugadores en el ranking, {resumen.parejas} parejas y {resumen.cedulas} cédulas protegidas. Guardá el archivo "torneos-antes-de-migrar" en un lugar privado: tiene las cédulas.
           <div style={{ marginTop: 10 }}><button className="btn btn-primary btn-sm" onClick={onTerminado}>Entrar a la app</button></div>
         </div>
       )}
