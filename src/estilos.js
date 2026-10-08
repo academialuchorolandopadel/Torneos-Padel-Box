@@ -8,7 +8,8 @@ export const CSS = `
   *{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
   .app{min-height:100vh;display:flex;flex-direction:column}
   .hdr{background:rgba(6,13,24,.95);border-bottom:1px solid var(--border);padding:10px 20px;position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .logo{font-family:'Oswald',sans-serif;font-size:20px;font-weight:700;color:var(--accent);letter-spacing:2px}
+  .logo{font-family:'Oswald',sans-serif;font-size:20px;font-weight:700;color:var(--accent);letter-spacing:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%}
+  .marca-club{font-family:'Oswald',sans-serif;font-size:18px;font-weight:500;letter-spacing:6px;text-transform:uppercase;color:var(--text);opacity:.85}
   .logo em{color:var(--text);font-style:normal}
   .hdr-name-wrap{display:flex;align-items:center;gap:6px;border-left:2px solid var(--border);padding-left:12px}
   .hdr-name{font-family:'Oswald',sans-serif;font-size:15px;font-weight:600;color:var(--text);letter-spacing:1px;text-transform:uppercase}
