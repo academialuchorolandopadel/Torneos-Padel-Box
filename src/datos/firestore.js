@@ -277,6 +277,44 @@ export async function cargarPerfilesAdmin(){
   return [...ids].map(id=>({id,clave:aMemoria(id),perfil:perfiles.get(id)||null,whatsapp:contactos.get(id)||null}));
 }
 
+// ===== Inscripción abierta (ver logica/anotarse.js) =====
+
+// Cualquiera: manda una solicitud. Solo se puede crear, no leer ni cambiar.
+export async function enviarSolicitud(solicitud){
+  const {collection,addDoc}=fs();
+  await addDoc(collection(db(),"solicitudes"),solicitud);
+}
+
+// Solo admin: todas las solicitudes pendientes, con su id
+export async function cargarSolicitudes(){
+  const {collection,getDocs}=fs();
+  const s=await getDocs(collection(db(),"solicitudes"));
+  return s.docs.map(d=>({id:d.id,...d.data()}));
+}
+
+// Solo admin: aprueba una solicitud. La cédula se busca en "accesos": si ya
+// existe (jugó torneos o estaba cargado) se usa ese jugador; si no, se crea.
+// partes = partesDeSolicitud(solicitud). Si el jugador ya tiene ficha en el
+// ranking, no se toca (se respeta su nombre y sus puntos).
+// Atómico: ficha nueva (si hace falta), perfil, WhatsApp y borrar la solicitud.
+export async function aprobarSolicitud(solicitud,partes){
+  await asegurarIds([solicitud.cedula]);
+  const id=aBase(solicitud.cedula);
+  const ficha=await fs().getDoc(ref("jugadores",id));
+  const batch=fs().writeBatch(db());
+  if(!ficha.exists())batch.set(ref("jugadores",id),partes.jugadorNuevo);
+  batch.set(ref("perfiles",id),partes.perfil);
+  batch.set(ref("contactos",id),partes.contacto);
+  batch.delete(ref("solicitudes",solicitud.id));
+  await batch.commit();
+  return {id,fichaNueva:!ficha.exists()};
+}
+
+// Solo admin: descarta una solicitud
+export async function eliminarSolicitud(id){
+  await fs().deleteDoc(ref("solicitudes",id));
+}
+
 // Solo admin: borra el perfil y el WhatsApp de un jugador (por ejemplo, una ficha suelta)
 export async function eliminarPerfil(id){
   const batch=fs().writeBatch(db());
