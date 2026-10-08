@@ -1,5 +1,5 @@
 // Pantallas de jugadores: ranking, historial, "Mi Torneo" y reglamento.
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { STAGE_LABEL, CAT_LABELS, CAT_COLORS, GENERO_COLORS, FIP_LINKS } from "../logica/constantes.js";
 import { calcStandings, calcPlayerStats } from "../logica/resultados.js";
 import { getRoundNames, calcPairStages } from "../logica/llave.js";
@@ -48,6 +48,12 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
   const [confirmDeleteIdx,setConfirmDeleteIdx]=useState(null);
   const list=Object.values(jugadores).sort((a,b)=>b.totalPts-a.totalPts);
   const jug=sel?jugadores[sel]:null;
+  // Al abrir el detalle, se desplaza lo justo para que se vea entero
+  useEffect(()=>{
+    if(!sel)return;
+    const el=document.getElementById("detalle-jugador");
+    if(el&&el.scrollIntoView)el.scrollIntoView({block:"nearest",behavior:"smooth"});
+  },[sel]);
   const handleDelete=(cedula)=>{if(!isAdmin)return;onDeleteJugador(cedula);if(sel===cedula)setSel(null);};
   const handleCatChange=(cedula,val)=>{onUpdateCategoria(cedula,val?Number(val):null);setEditingCat(null);};
   // Derivar género: override manual primero, luego del historial
@@ -73,8 +79,66 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
     else noGen.push(j);
   });
   const sortKeys=(obj)=>Object.keys(obj).sort((a,b)=>parseCatNum(a)-parseCatNum(b));
+  // Detalle del jugador: se abre justo debajo de su fila (no al final de la tabla)
+  const renderDetalle=()=>jug&&(
+            <div className="card" id="detalle-jugador" style={{margin:"0 0 12px",borderColor:"var(--accent)",scrollMarginTop:180}} onClick={e=>e.stopPropagation()}>
+              <div className="card-title">Historial — {jug.nombre}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                {isAdmin&&<div style={{fontSize:12,color:"var(--muted)"}}>CI: {jug.cedula}</div>}
+                {jug.categoria&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:5,background:CAT_COLORS[jug.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[jug.categoria]}</span>}
+              </div>
+              <div style={{fontFamily:"Oswald",fontSize:36,fontWeight:700,color:"var(--accent)",marginBottom:2}}>{jug.totalPts}</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginBottom:16,letterSpacing:1,textTransform:"uppercase"}}>puntos totales</div>
+              {(()=>{const d=(jug.historial||[]).filter(h=>h.torneoEdicion).reduce((s,h)=>s+(h.pts||0),0);return d>0&&<div style={{fontSize:11,color:"var(--gold)",marginBottom:12,display:"flex",alignItems:"center",gap:4}}>🛡️ <span><b>{d}</b> pts a defender en próximas ediciones</span></div>;})()}
+              {(()=>{const st=calcPlayerStats(jug.cedula,torneos);if(!st.pj)return null;return(
+                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20}}>{st.pj}</div><div className="stat-lbl">Partidos</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20}}>{st.g}</div><div className="stat-lbl">Ganados</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--danger)"}}>{st.per}</div><div className="stat-lbl">Perdidos</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--gold)"}}>{st.pct}%</div><div className="stat-lbl">Victorias</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--accent2)"}}>{st.rachaActual}</div><div className="stat-lbl">Racha actual</div></div>
+                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--accent2)"}}>{st.mejorRacha}</div><div className="stat-lbl">Mejor racha</div></div>
+                </div>
+              );})()}
+              {jug.historial.map((h,i)=>(
+                <div key={i} className="hist-item">
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}{h.manual&&<span style={{fontSize:9,color:"var(--muted)",marginLeft:4}}>(manual)</span>}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {formatearFecha(h.fecha)}</div>
+                  </div>
+                  <div className="col" style={{alignItems:"flex-end",gap:3}}>
+                    <span className="badge bg">{STAGE_LABEL[h.stage]||"✏️ Manual"}</span>
+                    {h.torneoEdicion&&<span style={{fontSize:9,color:"var(--gold)",marginTop:2}}>🛡️</span>}
+                    <span style={{fontFamily:"Oswald",fontWeight:700,color:h.pts>=0?"var(--gold)":"var(--danger)",fontSize:15}}>{h.pts>=0?"+":""}{h.pts}</span>
+                    {isAdmin&&(
+                      confirmDeleteIdx===i ? (
+                        <div className="row g8" style={{marginTop:4}}>
+                          <span style={{fontSize:10,color:"var(--danger)"}}>¿Borrar?</span>
+                          <button className="btn btn-danger btn-xs" onClick={()=>{onDeleteHistorialEntry(jug.cedula,i);setConfirmDeleteIdx(null);}}>✓ Sí</button>
+                          <button className="btn btn-ghost btn-xs" onClick={()=>setConfirmDeleteIdx(null)}>✕</button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-danger btn-xs" style={{marginTop:2}} title="Eliminar entrada" onClick={()=>setConfirmDeleteIdx(i)}>🗑️</button>
+                      )
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isAdmin&&(
+                <div style={{marginTop:14,borderTop:"1px solid var(--border)",paddingTop:12}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Ajuste manual de puntos</div>
+                  <div className="row g8 wrap">
+                    <input className="inp" type="number" style={{width:80}} placeholder="+/-pts" value={ajusteVal} onChange={e=>setAjusteVal(e.target.value)}/>
+                    <input className="inp f1" placeholder="Descripcion (ej: correccion)" value={ajusteDesc} onChange={e=>setAjusteDesc(e.target.value)}/>
+                    <button className="btn btn-secondary btn-sm" disabled={!ajusteVal||parseInt(ajusteVal)===0||isNaN(parseInt(ajusteVal))} onClick={()=>{const d=parseInt(ajusteVal);if(!isNaN(d)&&d!==0){onAjustarPuntos(jug.cedula,d,ajusteDesc.trim());setAjusteVal("");setAjusteDesc("");}}}>Aplicar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+  );
   const renderRow=(j,rank)=>(
-    <div key={j.cedula} className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)",padding:"8px 10px"}} onClick={()=>{setSel(sel===j.cedula?null:j.cedula);setConfirmDeleteIdx(null);}}>
+    <React.Fragment key={j.cedula}>
+    <div className="rank-row" style={{borderColor:sel===j.cedula?"var(--accent)":"var(--border)",padding:"8px 10px"}} onClick={()=>{setSel(sel===j.cedula?null:j.cedula);setConfirmDeleteIdx(null);}}>
       <div className={`rank-pos${rank===1?" p1":rank===2?" p2":rank===3?" p3":""}`} style={{fontSize:16,minWidth:24}}>{rank}</div>
       <div className="f1" style={{minWidth:0}}>
         <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.nombre}</div>
@@ -102,6 +166,8 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
       ))}
       {isAdmin&&<BotonConfirmar pregunta={`¿Borrar a ${j.nombre} y su historial?`} textoSi="Sí, borrar" onConfirmar={()=>handleDelete(j.cedula)}>🗑️</BotonConfirmar>}
     </div>
+    {sel===j.cedula&&renderDetalle()}
+    </React.Fragment>
   );
   const renderCol=(groups,color)=>{
     const keys=sortKeys(groups);
@@ -156,62 +222,7 @@ export function JugadoresView({ jugadores, torneos, onDeleteJugador, onUpdateCat
               <div className="grid2"><div>{noGen.map((j,i)=>renderRow(j,i+1))}</div><div/></div>
             </div>
           )}
-          {jug&&(
-            <div className="card" style={{marginTop:16}}>
-              <div className="card-title">Historial — {jug.nombre}</div>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                {isAdmin&&<div style={{fontSize:12,color:"var(--muted)"}}>CI: {jug.cedula}</div>}
-                {jug.categoria&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:5,background:CAT_COLORS[jug.categoria]||"var(--bg3)",color:"var(--text)"}}>{CAT_LABELS[jug.categoria]}</span>}
-              </div>
-              <div style={{fontFamily:"Oswald",fontSize:36,fontWeight:700,color:"var(--accent)",marginBottom:2}}>{jug.totalPts}</div>
-              <div style={{fontSize:11,color:"var(--muted)",marginBottom:16,letterSpacing:1,textTransform:"uppercase"}}>puntos totales</div>
-              {(()=>{const d=(jug.historial||[]).filter(h=>h.torneoEdicion).reduce((s,h)=>s+(h.pts||0),0);return d>0&&<div style={{fontSize:11,color:"var(--gold)",marginBottom:12,display:"flex",alignItems:"center",gap:4}}>🛡️ <span><b>{d}</b> pts a defender en próximas ediciones</span></div>;})()}
-              {(()=>{const st=calcPlayerStats(jug.cedula,torneos);if(!st.pj)return null;return(
-                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
-                  <div className="stat-box"><div className="stat-val" style={{fontSize:20}}>{st.pj}</div><div className="stat-lbl">Partidos</div></div>
-                  <div className="stat-box"><div className="stat-val" style={{fontSize:20}}>{st.g}</div><div className="stat-lbl">Ganados</div></div>
-                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--danger)"}}>{st.per}</div><div className="stat-lbl">Perdidos</div></div>
-                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--gold)"}}>{st.pct}%</div><div className="stat-lbl">Victorias</div></div>
-                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--accent2)"}}>{st.rachaActual}</div><div className="stat-lbl">Racha actual</div></div>
-                  <div className="stat-box"><div className="stat-val" style={{fontSize:20,color:"var(--accent2)"}}>{st.mejorRacha}</div><div className="stat-lbl">Mejor racha</div></div>
-                </div>
-              );})()}
-              {jug.historial.map((h,i)=>(
-                <div key={i} className="hist-item">
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:2}}>{h.torneoNombre}{h.manual&&<span style={{fontSize:9,color:"var(--muted)",marginLeft:4}}>(manual)</span>}</div>
-                    <div style={{fontSize:11,color:"var(--muted)"}}>{h.catNombre} · {formatearFecha(h.fecha)}</div>
-                  </div>
-                  <div className="col" style={{alignItems:"flex-end",gap:3}}>
-                    <span className="badge bg">{STAGE_LABEL[h.stage]||"✏️ Manual"}</span>
-                    {h.torneoEdicion&&<span style={{fontSize:9,color:"var(--gold)",marginTop:2}}>🛡️</span>}
-                    <span style={{fontFamily:"Oswald",fontWeight:700,color:h.pts>=0?"var(--gold)":"var(--danger)",fontSize:15}}>{h.pts>=0?"+":""}{h.pts}</span>
-                    {isAdmin&&(
-                      confirmDeleteIdx===i ? (
-                        <div className="row g8" style={{marginTop:4}}>
-                          <span style={{fontSize:10,color:"var(--danger)"}}>¿Borrar?</span>
-                          <button className="btn btn-danger btn-xs" onClick={()=>{onDeleteHistorialEntry(jug.cedula,i);setConfirmDeleteIdx(null);}}>✓ Sí</button>
-                          <button className="btn btn-ghost btn-xs" onClick={()=>setConfirmDeleteIdx(null)}>✕</button>
-                        </div>
-                      ) : (
-                        <button className="btn btn-danger btn-xs" style={{marginTop:2}} title="Eliminar entrada" onClick={()=>setConfirmDeleteIdx(i)}>🗑️</button>
-                      )
-                    )}
-                  </div>
-                </div>
-              ))}
-              {isAdmin&&(
-                <div style={{marginTop:14,borderTop:"1px solid var(--border)",paddingTop:12}}>
-                  <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Ajuste manual de puntos</div>
-                  <div className="row g8 wrap">
-                    <input className="inp" type="number" style={{width:80}} placeholder="+/-pts" value={ajusteVal} onChange={e=>setAjusteVal(e.target.value)}/>
-                    <input className="inp f1" placeholder="Descripcion (ej: correccion)" value={ajusteDesc} onChange={e=>setAjusteDesc(e.target.value)}/>
-                    <button className="btn btn-secondary btn-sm" disabled={!ajusteVal||parseInt(ajusteVal)===0||isNaN(parseInt(ajusteVal))} onClick={()=>{const d=parseInt(ajusteVal);if(!isNaN(d)&&d!==0){onAjustarPuntos(jug.cedula,d,ajusteDesc.trim());setAjusteVal("");setAjusteDesc("");}}}>Aplicar</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+
         </>
       )}
     </div>
