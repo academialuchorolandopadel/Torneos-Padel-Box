@@ -1,14 +1,13 @@
 // Nombre visible de la app: una palabra fija (lo que ES la herramienta) más el
 // nombre del club, que sale de 🏟️ Club. Así la misma app sirve para cualquier
 // club sin tocar el código: cambia el dato, no el programa.
-// (La marca interna "PadelBox" de las copias de seguridad NO es esto: es un
-// identificador para reconocer los archivos y no se cambia.)
+// Sin nombre de club cargado, muestra solo "TORNEOS".
 import React from "react";
 import { conDefectoClub } from "../logica/club.js";
 
 export const NOMBRE_APP = "TORNEOS";
 
-// Encabezado: "TORNEOS · Padel Box"
+// Encabezado: "TORNEOS · <club>" o solo "TORNEOS"
 export function Marca({ club }) {
   const nombre = conDefectoClub(club).nombre;
   return <div className="logo" title={nombre ? `${NOMBRE_APP} · ${nombre}` : NOMBRE_APP}>{NOMBRE_APP}{nombre && <em> · {nombre}</em>}</div>;
