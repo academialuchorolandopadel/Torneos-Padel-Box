@@ -27,6 +27,7 @@ import { VERSION } from "./version.js";
 import { VERSION_ESQUEMA } from "./logica/identidad.js";
 import { Mantenimiento, MigracionView } from "./vistas/migracion.jsx";
 import { MiPerfil, PerfilesAdmin } from "./vistas/perfil.jsx";
+import { partesDeSolicitud } from "./logica/anotarse.js";
 
 const TABS=[
   {id:"mitorneo",label:"🎾 Mi Torneo",playerOnly:true,hideRR:true},
@@ -729,6 +730,14 @@ export default function App() {
     return "";
   };
 
+  // Inscripción abierta: aprobar una solicitud la convierte en jugador con perfil.
+  // Si la cédula no tenía ficha en el ranking, se suma acá sin recargar todo.
+  async function aprobarSolicitud(sol){
+    const partes=partesDeSolicitud(sol);
+    const {fichaNueva}=await datos.aprobarSolicitud(sol,partes);
+    if(fichaNueva)setJugadores(prev=>prev[sol.cedula]?prev:({...prev,[sol.cedula]:{...partes.jugadorNuevo,cedula:sol.cedula}}));
+  }
+
   // Copia de seguridad: lee la base tal cual está y arma el archivo (la descarga la hace la pantalla)
   async function prepararCopia(){
     const colecciones=await datos.exportarTodo();
@@ -836,7 +845,7 @@ export default function App() {
       {isAdmin?<button className="btn btn-ghost btn-xs" onClick={handleLogoutAdmin} style={{marginLeft:8}}>🔓 Admin</button>:<button className="btn btn-ghost btn-xs" onClick={handleLogoutPlayer} style={{marginLeft:8}}>👤 Salir</button>}
     </header>
     <div className="main">
-      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="perfil"&&isPlayer&&!isAdmin?<MiPerfil key={playerCedula} nombre={nombreJugadorSesion()} categoriaOficial={jugadores[playerCedula]?.categoria||null} generoFicha={jugadores[playerCedula]?.genero||null} onCargar={cargarMiPerfil} onGuardar={guardarMiPerfil}/>:appView==="perfiles"&&isAdmin?<PerfilesAdmin jugadores={jugadores} torneos={torneos} onCargar={datos.cargarPerfilesAdmin} onEliminar={datos.eliminarPerfil} onUpdateCategoria={actualizarCategoriaJugador}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub} onPrepararCopia={prepararCopia} onAplicarRestauracion={datos.aplicarRestauracion} onRestaurado={()=>loadData(true)}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
+      {appView==="jugadores"?<JugadoresView jugadores={jugadores} torneos={torneos} onDeleteJugador={eliminarJugador} onUpdateCategoria={actualizarCategoriaJugador} onUpdateGenero={actualizarGeneroJugador} onCreateJugador={crearJugadorManual} isAdmin={isAdmin} onDeleteHistorialEntry={eliminarEntradaHistorial} onAjustarPuntos={ajustarPuntosJugador}/>:appView==="perfil"&&isPlayer&&!isAdmin?<MiPerfil key={playerCedula} nombre={nombreJugadorSesion()} categoriaOficial={jugadores[playerCedula]?.categoria||null} generoFicha={jugadores[playerCedula]?.genero||null} onCargar={cargarMiPerfil} onGuardar={guardarMiPerfil}/>:appView==="perfiles"&&isAdmin?<PerfilesAdmin jugadores={jugadores} torneos={torneos} onCargar={datos.cargarPerfilesAdmin} onEliminar={datos.eliminarPerfil} onUpdateCategoria={actualizarCategoriaJugador} onCargarSolicitudes={datos.cargarSolicitudes} onAprobarSolicitud={aprobarSolicitud} onEliminarSolicitud={datos.eliminarSolicitud}/>:appView==="reglamento"?<ReglamentoView/>:appView==="club"&&isAdmin?<ClubView club={club} onGuardar={guardarClub} onGuardarLogo={guardarLogoClub} onPrepararCopia={prepararCopia} onAplicarRestauracion={datos.aplicarRestauracion} onRestaurado={()=>loadData(true)}/>:appView==="calendario"&&isAdmin?<CalendarioClubView calendario={calendarioClub} isAdmin={isAdmin} onGuardarDias={guardarDiasClub}/>:(
         <>
           <div className="hero">
             {isAdmin?(<>
