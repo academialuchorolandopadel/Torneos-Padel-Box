@@ -56,7 +56,7 @@ function dibujarPagina(ctx, { formato, pagina, nro, total, torneo, club, pal, lo
     ctx.drawImage(logo, (W - w) / 2, y + (cajaH - h) / 2, w, h);
   } else {
     ctx.fillStyle = pal.texto; ctx.font = "700 64px Oswald, sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(club.nombre.toUpperCase(), W / 2, y + cajaH / 2 + 22);
+    ctx.fillText((club.nombre || "TORNEOS").toUpperCase(), W / 2, y + cajaH / 2 + 22);
   }
   y += cajaH + (post ? 40 : 60);
   // Nombre del torneo (hasta 2 líneas)
