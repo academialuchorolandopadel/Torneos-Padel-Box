@@ -11,11 +11,12 @@ import React, { useState } from "react";
 import { planMigracion, revisarMigracion, nuevoIdJugador } from "../logica/identidad.js";
 import { planRestauracion, armarLotes, nombreArchivoCopia } from "../logica/copia.js";
 import { CopiaSeguridad, descargarJSON } from "./club.jsx";
+import { MarcaGrande } from "./marca.jsx";
 
-export function Mantenimiento({ onAdmin }) {
+export function Mantenimiento({ club, onAdmin }) {
   return (
     <div style={{ textAlign: "center", maxWidth: 420, margin: "0 auto" }}>
-      <div className="hero-title" style={{ marginBottom: 16 }}>PADEL<em style={{ fontStyle: "normal", color: "var(--accent)" }}>BOX</em></div>
+      <MarcaGrande club={club} />
       <p style={{ color: "var(--text)", marginBottom: 8 }}>Estamos actualizando la app.</p>
       <p style={{ color: "var(--muted)", marginBottom: 24 }}>Volvé a entrar en unos minutos.</p>
       <button className="btn btn-ghost btn-sm" onClick={onAdmin}>🔑 Soy admin</button>
