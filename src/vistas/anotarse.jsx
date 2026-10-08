@@ -10,6 +10,7 @@ import { fechaHoyISO } from "../logica/fechas.js";
 import { PREGUNTAS, FRANJAS, franjasADisponibilidad, nuevaVigencia } from "../logica/perfil.js";
 import { armarSolicitud } from "../logica/anotarse.js";
 import { enviarSolicitud } from "../datos/firestore.js";
+import { Marca, textoPie } from "./marca.jsx";
 
 const LADOS = [["drive", "Drive"], ["reves", "Revés"], ["ambos", "Los dos, cómodo en ambos"]];
 const GENEROS = [["M", "Caballeros"], ["F", "Damas"]];
@@ -56,9 +57,9 @@ export function Anotarse() {
   };
 
   const marco = (contenido) => (<><style>{CSS}</style><div className="app">
-    <header className="hdr"><div className="logo">PADEL<em>BOX</em></div></header>
+    <header className="hdr"><Marca club={null} /></header>
     <div className="main" style={{ maxWidth: 680 }}>{contenido}</div>
-    <div className="pie-version">PadelBox {VERSION}</div>
+    <div className="pie-version">{textoPie(VERSION)}</div>
   </div></>);
 
   if (listo) return marco(
