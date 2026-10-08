@@ -115,3 +115,12 @@ export function calcPairStages(cat) {
   });
   return stages;
 }
+
+// Pregunta de confirmación antes de rehacer una llave que ya existe.
+// Dice la consecuencia concreta: un "¿Seguro?" genérico se contesta por reflejo.
+export function preguntaRegenerarLlave(resultadosCargados, modoCalendario) {
+  const n = resultadosCargados;
+  let t = n > 0 ? (n === 1 ? "Se borra 1 resultado de la llave." : `Se borran ${n} resultados de la llave.`) : "Se rearma la llave con las posiciones actuales.";
+  if (modoCalendario === "largo") t += " Sus partidos se vuelven a programar: revisá los turnos en Reva.";
+  return t;
+}
